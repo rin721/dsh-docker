@@ -16,11 +16,12 @@ services:
       DSH_HOME: /home/node/.dsh
       DSH_PERMISSION_MODE: "${DSH_PERMISSION_MODE:-workspace-write}"
       DSH_TELEMETRY_DISABLED: "${DSH_TELEMETRY_DISABLED:-1}"
+      DSH_HTTP_COMPAT_SHIM: "${DSH_HTTP_COMPAT_SHIM:-true}"
       NODE_USE_ENV_PROXY: "${NODE_USE_ENV_PROXY:-1}"
       DSH_EXTRA_TRUSTED_HOSTS: "${DSH_EXTRA_TRUSTED_HOSTS:-}"
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,dsh,gateway}"
+      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,dsh,gateway,edge}"
     volumes:
       - type: bind
         source: "${RUNTIME_DIR:-./.runtime}/workspace"

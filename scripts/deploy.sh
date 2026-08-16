@@ -14,22 +14,64 @@ if [[ ! -f .env ]]; then
     echo "已从 .env.example 创建本地 .env。"
 fi
 
-load_env "${ROOT_DIR}"
-"${ROOT_DIR}/scripts/init-runtime.sh"
-
-DSH_PORT="${DSH_PORT:-3080}"
-validate_port DSH_PORT "${DSH_PORT}"
-
-if [[ "${BIND_ADDRESS:-127.0.0.1}" == "0.0.0.0" ]]; then
-    echo >&2
-    echo "警告：Gateway 将监听所有宿主机网卡。" >&2
-    echo "HTTP Basic Auth 不应通过公网明文 HTTP 使用；公网部署请在前面提供 HTTPS。" >&2
+# 可选：
+#   ./scripts/deploy.sh local
+#   ./scripts/deploy.sh domain-http dsh.example.com
+#   ./scripts/deploy.sh domain-https dsh.example.com admin@example.com
+if [[ $# -gt 0 ]]; then
+    configure_access_mode "${ROOT_DIR}" "$@"
 fi
 
-docker compose config >/dev/null
+load_env "${ROOT_DIR}"
 
-echo "拉取 Gateway 镜像..."
-docker compose pull gateway
+mode="${ACCESS_MODE:-local}"
+validate_access_mode "${mode}"
+
+if [[ "${mode}" == "domain-http" && -z "${DSH_DOMAIN:-}" ]]; then
+    read -r -p "域名（例如 dsh.example.com）: " DSH_DOMAIN
+    validate_domain "${DSH_DOMAIN}"
+    set_env_value "${ROOT_DIR}" DSH_DOMAIN "${DSH_DOMAIN}"
+    export DSH_DOMAIN
+fi
+
+if [[ "${mode}" == "domain-https" ]]; then
+    if [[ -z "${DSH_DOMAIN:-}" ]]; then
+        read -r -p "域名（例如 dsh.example.com）: " DSH_DOMAIN
+        validate_domain "${DSH_DOMAIN}"
+        set_env_value "${ROOT_DIR}" DSH_DOMAIN "${DSH_DOMAIN}"
+        export DSH_DOMAIN
+    fi
+
+    if [[ -z "${ACME_EMAIL:-}" ]]; then
+        read -r -p "ACME 邮箱: " ACME_EMAIL
+        [[ -n "${ACME_EMAIL}" ]] || {
+            echo "ACME 邮箱不能为空。" >&2
+            exit 1
+        }
+        set_env_value "${ROOT_DIR}" ACME_EMAIL "${ACME_EMAIL}"
+        export ACME_EMAIL
+    fi
+fi
+
+# 参数模式可能刚刚写入 .env，重新读取确保所有变量一致。
+load_env "${ROOT_DIR}"
+validate_mode_config
+"${ROOT_DIR}/scripts/init-runtime.sh"
+
+echo "Access mode : ${ACCESS_MODE:-local}"
+echo "Public URL  : $(public_url)"
+echo
+
+if [[ "${ACCESS_MODE:-local}" == "domain-http" ]]; then
+    echo >&2
+    echo "警告：当前为 domain-http（No HTTPS）。" >&2
+    echo "Basic Auth 凭据会通过明文 HTTP 传输，只应在可信网络/受控环境使用。" >&2
+fi
+
+active_compose config >/dev/null
+
+echo "拉取网关镜像..."
+pull_mode_images
 
 USERS_FILE="$(users_file "${ROOT_DIR}")"
 if ! has_auth_user "${USERS_FILE}"; then
@@ -38,21 +80,23 @@ if ! has_auth_user "${USERS_FILE}"; then
     "${ROOT_DIR}/scripts/create-user.sh"
 fi
 
-echo "验证 Gateway 配置..."
-validate_gateway_config_or_die
+echo "验证 Caddy 配置..."
+validate_all_caddy_or_die
 
 echo "构建 DSH 开发镜像..."
-docker compose build --pull dsh
+active_compose build --pull dsh
 
 echo "启动服务..."
-docker compose up -d --remove-orphans
+active_compose up -d --remove-orphans
 
 RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
 
 printf '\n部署完成。\n'
 printf 'Repository : %s\n' "${ROOT_DIR}"
 printf 'Runtime    : %s\n' "${RUNTIME_ABS}"
-printf 'Gateway    : %s:%s\n' "${BIND_ADDRESS:-127.0.0.1}" "${DSH_PORT}"
+printf 'Mode       : %s\n' "${ACCESS_MODE:-local}"
+printf 'Public URL : %s\n' "$(public_url)"
+printf 'Workspace  : %s <-> /workspace\n' "${RUNTIME_ABS}/workspace"
 
 echo
 "${ROOT_DIR}/scripts/check.sh"

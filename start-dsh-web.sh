@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# DeepSeek Harness intentionally binds its web server to loopback.
-# Keep DSH on 127.0.0.1 and expose it only inside this container through
-# socat. The outer authentication gateway is responsible for host access.
+# DSH remains loopback-only inside the container.
+# A small Node proxy exposes port 3080 inside the Docker network and can inject
+# browser compatibility code for remote plain-HTTP deployments.
 readonly internal_host="${DSH_INTERNAL_HOST:-127.0.0.1}"
 readonly internal_port="${DSH_INTERNAL_PORT:-3079}"
 readonly proxy_port="${DSH_PROXY_PORT:-3080}"
@@ -38,8 +38,6 @@ dsh_args=(
     --trusted-host "127.0.0.1:${internal_port}"
 )
 
-# Optional extra trusted hosts for unusual deployments.
-# Comma-separated, for example: example.com,example.com:443
 if [[ -n "${DSH_EXTRA_TRUSTED_HOSTS:-}" ]]; then
     IFS=',' read -r -a extra_hosts <<< "${DSH_EXTRA_TRUSTED_HOSTS}"
     for trusted_host in "${extra_hosts[@]}"; do
@@ -51,9 +49,10 @@ fi
 dsh "${dsh_args[@]}" "$@" &
 dsh_pid="$!"
 
-socat \
-    "TCP-LISTEN:${proxy_port},reuseaddr,fork,bind=0.0.0.0" \
-    "TCP:${internal_host}:${internal_port}" &
+DSH_INTERNAL_HOST="${internal_host}" \
+DSH_INTERNAL_PORT="${internal_port}" \
+DSH_PROXY_PORT="${proxy_port}" \
+node /usr/local/lib/dsh-web-proxy.mjs &
 proxy_pid="$!"
 
 wait -n "${dsh_pid}" "${proxy_pid}"

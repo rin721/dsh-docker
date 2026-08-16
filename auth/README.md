@@ -1,8 +1,8 @@
 # Authentication
 
-Core 使用 Caddy `basic_auth` 给 DeepSeek Harness 套一层浏览器用户名/密码认证。
+Core Gateway 使用 Caddy HTTP Basic Authentication。
 
-真实用户数据不会保存在 Git 仓库中，而是在运行时生成到：
+用户数据默认保存在：
 
 ```text
 .runtime/auth/users.caddy
@@ -14,16 +14,30 @@ Core 使用 Caddy `basic_auth` 给 DeepSeek Harness 套一层浏览器用户名/
 username $2a$14$...
 ```
 
-密码只保存 bcrypt Hash，不保存明文。
+明文密码不落盘。
 
-请使用项目脚本管理用户，不建议手工编辑：
+## 创建 / 修改密码
 
 ```bash
 ./scripts/create-user.sh
+```
+
+同名用户再次创建即更新该用户密码。
+
+## 查看用户
+
+```bash
 ./scripts/list-users.sh
+```
+
+## 删除用户
+
+```bash
 ./scripts/remove-user.sh
 ```
 
-HTTP Basic Auth 会把凭据随每次请求发送，因此公网访问必须置于 HTTPS 之后。Core 默认只绑定 `127.0.0.1`，可以由 Nginx、1Panel、Caddy、Cloudflare 等外层 TLS 入口反向代理。
+## 安全说明
 
-密码 Hash 由 `scripts/create-user.sh` 调用 Caddy `hash-password` 生成；明文密码仅通过 stdin 传入，不落盘。
+`domain-http` 是项目正式支持的部署模式，但 HTTP Basic Auth 在纯 HTTP 上传输时不提供链路加密。它只适合可信局域网、VPN、内网或你明确接受该风险的环境。
+
+公网正式部署优先使用 `domain-https` 或在项目 Core 前面放置你自己的 HTTPS 反向代理。

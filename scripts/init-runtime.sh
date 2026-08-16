@@ -15,6 +15,7 @@ GID_VALUE="${RUNTIME_GID:-1000}"
 
 mkdir -p \
     "${RUNTIME_ABS}/workspace" \
+    "${RUNTIME_ABS}/workspace/projects" \
     "${RUNTIME_ABS}/dsh-home" \
     "${RUNTIME_ABS}/auth" \
     "${RUNTIME_ABS}/edge/caddy/data" \
@@ -26,6 +27,7 @@ touch "${RUNTIME_ABS}/auth/users.caddy"
 if [[ "${EUID}" -eq 0 ]]; then
     chown -R "${UID_VALUE}:${GID_VALUE}" \
         "${RUNTIME_ABS}/workspace" \
+    "${RUNTIME_ABS}/workspace/projects" \
         "${RUNTIME_ABS}/dsh-home"
 fi
 

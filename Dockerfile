@@ -100,7 +100,6 @@ RUN set -eux; \
         procps \
         psmisc \
         lsof \
-        socat \
         tini; \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd; \
     git lfs install --system; \
@@ -121,6 +120,7 @@ RUN set -eux; \
     git config --system --add safe.directory /workspace
 
 COPY --chmod=0755 start-dsh-web.sh /usr/local/bin/start-dsh-web
+COPY --chmod=0644 dsh-web-proxy.mjs dsh-http-compat.js /usr/local/lib/
 
 USER node
 WORKDIR /workspace

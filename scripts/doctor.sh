@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib.sh
 source "${ROOT_DIR}/scripts/lib.sh"
@@ -19,17 +20,27 @@ if [[ -f .env ]]; then
     load_env "${ROOT_DIR}"
 else
     warn ".env 不存在；deploy.sh 会从 .env.example 自动创建"
-    load_env "${ROOT_DIR}" || true
 fi
 
-if validate_port DSH_PORT "${DSH_PORT:-3080}" >/dev/null 2>&1; then ok "DSH_PORT=${DSH_PORT:-3080}"; else bad "invalid DSH_PORT"; fi
+if validate_access_mode "${ACCESS_MODE:-local}" >/dev/null 2>&1; then
+    ok "ACCESS_MODE=${ACCESS_MODE:-local}"
+else
+    bad "invalid ACCESS_MODE"
+fi
+
+if validate_mode_config >/dev/null 2>&1; then
+    ok "access mode config"
+else
+    bad "access mode config invalid"
+fi
 
 RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
 echo "Runtime: ${RUNTIME_ABS}"
+
 FILE="$(users_file "${ROOT_DIR}")"
 if has_auth_user "${FILE}"; then ok "至少存在一个 Basic Auth 用户"; else warn "尚未创建认证用户"; fi
 
-if docker compose config >/dev/null 2>&1; then ok "compose config"; else bad "compose config invalid"; fi
+if active_compose config >/dev/null 2>&1; then ok "compose config"; else bad "compose config invalid"; fi
 
 if [[ -s "${FILE}" ]] && docker info >/dev/null 2>&1; then
     if docker image inspect "$(gateway_image)" >/dev/null 2>&1; then
@@ -39,12 +50,18 @@ if [[ -s "${FILE}" ]] && docker info >/dev/null 2>&1; then
             bad "Caddy gateway config invalid"
         fi
     else
-        warn "Gateway 镜像尚未拉取；deploy.sh 会先拉取后验证"
+        warn "Gateway 镜像尚未拉取；deploy.sh 会自动拉取"
     fi
 fi
 
-if [[ "${BIND_ADDRESS:-127.0.0.1}" == "0.0.0.0" ]]; then
-    warn "BIND_ADDRESS=0.0.0.0；若跨不可信网络访问，请务必在前面提供 HTTPS"
+if [[ "${ACCESS_MODE:-local}" == "domain-http" ]]; then
+    warn "domain-http 使用明文 HTTP；Basic Auth 只适用于可信网络/受控环境"
+fi
+
+if [[ "${DSH_HTTP_COMPAT_SHIM:-true}" == "true" ]]; then
+    ok "remote HTTP crypto.randomUUID compatibility shim enabled"
+else
+    warn "remote HTTP compatibility shim disabled"
 fi
 
 (( errors == 0 )) || exit 1
