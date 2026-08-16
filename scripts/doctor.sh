@@ -33,7 +33,7 @@ if docker compose config >/dev/null 2>&1; then ok "compose config"; else bad "co
 
 if [[ -s "${FILE}" ]] && docker info >/dev/null 2>&1; then
     if docker image inspect "$(gateway_image)" >/dev/null 2>&1; then
-        if validate_gateway_config >/dev/null 2>&1; then
+        if validate_gateway_config_or_die >/dev/null 2>&1; then
             ok "Caddy gateway config"
         else
             bad "Caddy gateway config invalid"

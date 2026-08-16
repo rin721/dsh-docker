@@ -16,6 +16,20 @@
 
 > **安全提醒**：Core 登录层使用 HTTP Basic Authentication。Basic Auth 必须运行在可信网络或 HTTPS 后面。默认 `BIND_ADDRESS=127.0.0.1`，适合由 Nginx、1Panel、Caddy 等本机反向代理提供 HTTPS。不要把明文 HTTP Basic Auth 直接暴露到公网。
 
+
+## 开箱即用原则
+
+正常使用只需要：
+
+```bash
+git clone https://github.com/rin721/dsh-docker.git
+cd dsh-docker
+./scripts/deploy.sh
+```
+
+不要求用户修改 Shell 脚本、Caddyfile 或 Compose 文件。运行参数统一由 `.env` 管理，持久化数据统一保存在 `.runtime/`。
+
+
 ---
 
 ## 1. 架构
@@ -110,6 +124,7 @@ dsh-docker/
     ├── update.sh
     ├── check.sh
     ├── doctor.sh
+    ├── self-test.sh
     ├── stop.sh
     ├── cleanup-legacy.sh
     ├── edge-up.sh
@@ -192,7 +207,7 @@ git clone https://github.com/rin721/dsh-docker.git
 cd dsh-docker
 ```
 
-仓库可以 clone 到任意目录。
+仓库可以 clone 到任意目录，不依赖固定宿主机路径。
 
 ### 4.2 首次部署
 
@@ -202,55 +217,47 @@ cd dsh-docker
 ./scripts/deploy.sh
 ```
 
-如果 `.env` 不存在，脚本会自动：
+首次运行会自动完成：
 
 ```text
-.env.example -> .env
+创建 .env
+    ↓
+初始化仓库内 .runtime
+    ↓
+拉取 Caddy Gateway
+    ↓
+创建登录用户（仅首次）
+    ↓
+验证 Gateway 配置
+    ↓
+构建 DSH 开发镜像
+    ↓
+启动 dsh + gateway
+    ↓
+自动输出服务状态
 ```
 
-如果尚未创建认证用户，会交互提示：
+首次创建用户时只需要输入：
 
 ```text
-首次部署需要创建登录用户。
-用户名: xiaolin
+用户名:
 密码:
 再次输入密码:
 ```
 
-密码不会明文写入磁盘。脚本通过 Caddy 官方 `hash-password` 生成 bcrypt Hash；密码从 stdin 传入，并以换行结束以符合 Caddy 的非 TTY 输入读取方式。最终写入：
+明文密码不会写入磁盘。认证数据保存在：
 
 ```text
 .runtime/auth/users.caddy
 ```
 
-随后自动：
-
-```text
-初始化 .runtime
-      ↓
-校验 Docker Compose 配置
-      ↓
-拉取 Caddy Gateway 镜像
-      ↓
-使用 `caddy validate` 验证 Gateway Caddyfile
-      ↓
-构建 DSH 开发镜像
-      ↓
-启动 dsh + gateway
-```
-
-Gateway 配置验证会显式使用 Caddy 作为容器入口：
+后续再次执行：
 
 ```bash
-docker compose run --rm --no-deps \
-  --entrypoint caddy \
-  gateway \
-  validate \
-  --config /etc/caddy/Caddyfile \
-  --adapter caddyfile
+./scripts/deploy.sh
 ```
 
-这是必要的，因为官方 `caddy` Docker 镜像使用 `CMD` 启动 Caddy，并不是 `ENTRYPOINT`。
+不会重复创建已有用户。
 
 ### 4.3 查看状态
 
@@ -258,20 +265,55 @@ docker compose run --rm --no-deps \
 ./scripts/check.sh
 ```
 
-或者：
+完整诊断：
 
 ```bash
-docker compose ps
-docker compose logs -f --tail=200
+./scripts/doctor.sh
 ```
 
-默认地址：
+仓库 / CI 静态自检：
+
+```bash
+./scripts/self-test.sh
+# 或
+make self-test
+```
+
+### 4.4 默认访问方式
+
+默认：
+
+```dotenv
+BIND_ADDRESS=127.0.0.1
+DSH_PORT=3080
+```
+
+因此默认只监听服务器本机：
 
 ```text
 http://127.0.0.1:3080
 ```
 
-浏览器会显示 HTTP Basic Auth 用户名/密码弹窗；认证成功后进入 DeepSeek Harness。
+推荐让 Nginx、1Panel、OpenResty 等本机反向代理对外提供 HTTPS，再转发到：
+
+```text
+127.0.0.1:3080
+```
+
+如果明确需要让其他机器直接访问，可以修改 `.env`：
+
+```dotenv
+BIND_ADDRESS=0.0.0.0
+DSH_PORT=3080
+```
+
+然后：
+
+```bash
+docker compose up -d --force-recreate gateway
+```
+
+> 跨不可信网络或公网使用时，应在外层提供 HTTPS；不要直接暴露明文 HTTP Basic Auth。
 
 ---
 
@@ -283,7 +325,7 @@ http://127.0.0.1:3080
 cp .env.example .env
 ```
 
-可以手动编辑：
+仅在高级自定义场景下，也可以直接编辑：
 
 ```bash
 nano .env

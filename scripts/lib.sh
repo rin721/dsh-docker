@@ -107,6 +107,15 @@ validate_gateway_config() {
         --adapter caddyfile
 }
 
+validate_gateway_config_or_die() {
+    local output
+    if ! output="$(validate_gateway_config 2>&1)"; then
+        echo "Gateway Caddy 配置验证失败：" >&2
+        printf '%s\n' "${output}" >&2
+        return 1
+    fi
+}
+
 validate_edge_config() {
     docker compose -f compose.yaml -f compose.edge.caddy.yaml run --rm --no-deps \
         --entrypoint caddy \
@@ -114,4 +123,13 @@ validate_edge_config() {
         validate \
         --config /etc/caddy/Caddyfile \
         --adapter caddyfile
+}
+
+validate_edge_config_or_die() {
+    local output
+    if ! output="$(validate_edge_config 2>&1)"; then
+        echo "HTTPS Edge Caddy 配置验证失败：" >&2
+        printf '%s\n' "${output}" >&2
+        return 1
+    fi
 }

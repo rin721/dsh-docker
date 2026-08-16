@@ -19,7 +19,7 @@ docker compose -f compose.yaml -f compose.edge.caddy.yaml config >/dev/null
 docker compose -f compose.yaml -f compose.edge.caddy.yaml pull gateway edge
 
 echo "验证 HTTPS Edge 配置..."
-validate_edge_config >/dev/null
+validate_edge_config_or_die
 
 docker compose -f compose.yaml -f compose.edge.caddy.yaml up -d --remove-orphans
 

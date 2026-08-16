@@ -1,4 +1,4 @@
-.PHONY: deploy update rebuild check doctor stop user users remove-user edge-up edge-down
+.PHONY: deploy update rebuild check doctor self-test stop user users remove-user edge-up edge-down
 
 deploy:
 	./scripts/deploy.sh
@@ -14,6 +14,9 @@ check:
 
 doctor:
 	./scripts/doctor.sh
+
+self-test:
+	./scripts/self-test.sh
 
 stop:
 	./scripts/stop.sh

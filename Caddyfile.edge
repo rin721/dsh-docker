@@ -1,18 +1,18 @@
 {
-    email {$ACME_EMAIL}
+	email {$ACME_EMAIL}
 }
 
 {$DSH_DOMAIN} {
-    header {
-        -Server
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "same-origin"
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        Strict-Transport-Security "max-age=31536000"
-    }
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000"
+	}
 
-    # 认证仍然由 Core gateway 负责；Edge 只负责域名/TLS。
-    reverse_proxy gateway:3080 {
-        flush_interval -1
-    }
+	# 认证仍然由 Core gateway 负责；Edge 只负责域名/TLS。
+	reverse_proxy gateway:3080 {
+		flush_interval -1
+	}
 }

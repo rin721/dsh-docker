@@ -1,19 +1,19 @@
 {
-    auto_https off
-    admin off
+	auto_https off
+	admin off
 }
 
 :3080 {
-    basic_auth bcrypt "{$AUTH_REALM}" {
-        import /etc/caddy/auth/users.caddy
-    }
+	basic_auth bcrypt "{$AUTH_REALM}" {
+		import /etc/caddy/auth/users.caddy
+	}
 
-    reverse_proxy dsh:3080 {
-        # DSH Web 对 Host 有安全校验。固定上游 Host，不把任意公网 Host 直接透传给 DSH。
-        header_up Host "localhost:3080"
-        header_up -Authorization
+	reverse_proxy dsh:3080 {
+		# DSH Web 对 Host 有安全校验。固定上游 Host，不把任意公网 Host 直接透传给 DSH。
+		header_up Host "localhost:3080"
+		header_up -Authorization
 
-        # Agent/Web UI 可能使用流式响应。
-        flush_interval -1
-    }
+		# Agent/Web UI 可能使用流式响应。
+		flush_interval -1
+	}
 }

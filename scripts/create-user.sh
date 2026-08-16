@@ -35,9 +35,20 @@ echo
 
 # 不使用 --plaintext 参数，避免把密码出现在 docker/进程参数中。
 # Caddy 在非 TTY stdin 模式下按一行读取密码，因此必须写入结尾换行符。
-hash="$({ printf '%s\n' "${password}" | docker run --rm -i --entrypoint caddy "${CADDY_IMAGE}" \
-    hash-password --algorithm bcrypt --bcrypt-cost "${BCRYPT_COST}"; } | tr -d '\r\n')"
-unset password password2
+hash_output=""
+if ! hash_output="$(
+    printf '%s\n' "${password}" |
+        docker run --rm -i --entrypoint caddy "${CADDY_IMAGE}" \
+            hash-password --algorithm bcrypt --bcrypt-cost "${BCRYPT_COST}" 2>&1
+)"; then
+    unset password password2
+    echo "生成登录密码 Hash 失败：" >&2
+    printf '%s\n' "${hash_output}" >&2
+    exit 1
+fi
+
+hash="$(printf '%s\n' "${hash_output}" | tr -d '\r\n')"
+unset password password2 hash_output
 
 [[ "${hash}" =~ ^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$ ]] || {
     echo "Caddy 未返回合法 bcrypt Hash。" >&2
