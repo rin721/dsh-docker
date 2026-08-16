@@ -93,3 +93,25 @@ compose_project_name() {
     local root="$1"
     basename "${root}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g'
 }
+
+gateway_image() {
+    printf 'caddy:%s\n' "${GATEWAY_CADDY_VERSION:-2.11.4}"
+}
+
+validate_gateway_config() {
+    docker compose run --rm --no-deps \
+        --entrypoint caddy \
+        gateway \
+        validate \
+        --config /etc/caddy/Caddyfile \
+        --adapter caddyfile
+}
+
+validate_edge_config() {
+    docker compose -f compose.yaml -f compose.edge.caddy.yaml run --rm --no-deps \
+        --entrypoint caddy \
+        edge \
+        validate \
+        --config /etc/caddy/Caddyfile \
+        --adapter caddyfile
+}

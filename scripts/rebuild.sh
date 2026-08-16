@@ -42,6 +42,9 @@ fi
 echo "拉取 Gateway 镜像..."
 docker compose pull gateway
 
+echo "验证 Gateway 配置..."
+validate_gateway_config >/dev/null
+
 echo "构建新的 DSH 镜像..."
 docker compose build --pull dsh
 

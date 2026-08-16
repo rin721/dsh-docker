@@ -25,3 +25,5 @@ username $2a$14$...
 ```
 
 HTTP Basic Auth 会把凭据随每次请求发送，因此公网访问必须置于 HTTPS 之后。Core 默认只绑定 `127.0.0.1`，可以由 Nginx、1Panel、Caddy、Cloudflare 等外层 TLS 入口反向代理。
+
+密码 Hash 由 `scripts/create-user.sh` 调用 Caddy `hash-password` 生成；明文密码仅通过 stdin 传入，不落盘。

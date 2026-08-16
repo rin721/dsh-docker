@@ -217,7 +217,7 @@ cd dsh-docker
 再次输入密码:
 ```
 
-密码不会明文写入磁盘。脚本通过 Caddy 官方 `hash-password` 生成 bcrypt Hash，最终写入：
+密码不会明文写入磁盘。脚本通过 Caddy 官方 `hash-password` 生成 bcrypt Hash；密码从 stdin 传入，并以换行结束以符合 Caddy 的非 TTY 输入读取方式。最终写入：
 
 ```text
 .runtime/auth/users.caddy
@@ -228,14 +228,29 @@ cd dsh-docker
 ```text
 初始化 .runtime
       ↓
-校验 Compose / Gateway 配置
+校验 Docker Compose 配置
       ↓
 拉取 Caddy Gateway 镜像
+      ↓
+使用 `caddy validate` 验证 Gateway Caddyfile
       ↓
 构建 DSH 开发镜像
       ↓
 启动 dsh + gateway
 ```
+
+Gateway 配置验证会显式使用 Caddy 作为容器入口：
+
+```bash
+docker compose run --rm --no-deps \
+  --entrypoint caddy \
+  gateway \
+  validate \
+  --config /etc/caddy/Caddyfile \
+  --adapter caddyfile
+```
+
+这是必要的，因为官方 `caddy` Docker 镜像使用 `CMD` 启动 Caddy，并不是 `ENTRYPOINT`。
 
 ### 4.3 查看状态
 
@@ -849,7 +864,7 @@ https://dsh.example.com
 - 端口格式；
 - 用户配置；
 - Compose 配置；
-- Caddy Gateway Caddyfile 能否被解析。
+- Caddy Gateway Caddyfile 能否通过 `caddy validate` 完整验证。
 
 ### 日志
 

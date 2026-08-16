@@ -33,7 +33,8 @@ echo
 [[ -n "${password}" ]] || { echo "密码不能为空。" >&2; exit 1; }
 [[ "${password}" == "${password2}" ]] || { echo "两次密码不一致。" >&2; exit 1; }
 
-# 不使用 --plaintext 参数，避免把密码出现在 docker/进程参数中；通过 stdin 传给 Caddy。
+# 不使用 --plaintext 参数，避免把密码出现在 docker/进程参数中。
+# Caddy 在非 TTY stdin 模式下按一行读取密码，因此必须写入结尾换行符。
 hash="$({ printf '%s\n' "${password}" | docker run --rm -i --entrypoint caddy "${CADDY_IMAGE}" \
     hash-password --algorithm bcrypt --bcrypt-cost "${BCRYPT_COST}"; } | tr -d '\r\n')"
 unset password password2

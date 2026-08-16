@@ -34,11 +34,11 @@ fi
 
 docker compose config >/dev/null
 
-echo "验证 Gateway 配置..."
-docker compose run --rm --no-deps gateway adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
-
 echo "拉取 Gateway 镜像..."
 docker compose pull gateway
+
+echo "验证 Gateway 配置..."
+validate_gateway_config >/dev/null
 
 echo "构建 DSH 开发镜像..."
 docker compose build --pull dsh

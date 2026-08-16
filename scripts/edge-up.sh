@@ -17,6 +17,10 @@ validate_port EDGE_HTTPS_PORT "${EDGE_HTTPS_PORT:-443}"
 
 docker compose -f compose.yaml -f compose.edge.caddy.yaml config >/dev/null
 docker compose -f compose.yaml -f compose.edge.caddy.yaml pull gateway edge
+
+echo "验证 HTTPS Edge 配置..."
+validate_edge_config >/dev/null
+
 docker compose -f compose.yaml -f compose.edge.caddy.yaml up -d --remove-orphans
 
 echo "HTTPS Edge 已启动：https://${DSH_DOMAIN}"

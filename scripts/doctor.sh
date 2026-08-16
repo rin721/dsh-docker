@@ -32,10 +32,14 @@ if has_auth_user "${FILE}"; then ok "至少存在一个 Basic Auth 用户"; else
 if docker compose config >/dev/null 2>&1; then ok "compose config"; else bad "compose config invalid"; fi
 
 if [[ -s "${FILE}" ]] && docker info >/dev/null 2>&1; then
-    if docker compose run --rm --no-deps gateway adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-        ok "Caddy gateway config"
+    if docker image inspect "$(gateway_image)" >/dev/null 2>&1; then
+        if validate_gateway_config >/dev/null 2>&1; then
+            ok "Caddy gateway config"
+        else
+            bad "Caddy gateway config invalid"
+        fi
     else
-        bad "Caddy gateway config invalid"
+        warn "Gateway 镜像尚未拉取；deploy.sh 会先拉取后验证"
     fi
 fi
 
