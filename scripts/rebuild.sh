@@ -8,27 +8,30 @@ cd "${ROOT_DIR}"
 require_docker
 
 "${ROOT_DIR}/scripts/cleanup-legacy.sh"
+[[ -f .env ]] || cp .env.example .env
 load_env "${ROOT_DIR}"
-
 "${ROOT_DIR}/scripts/init-runtime.sh"
+
 RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
 CONFIG_FILE="${RUNTIME_ABS}/tinyauth/config.yml"
-if ! grep -Eq '^[[:space:]]*-[[:space:]]*"[^:]+:\$2' "${CONFIG_FILE}"; then
-    echo "缺少登录用户，请执行 ./scripts/create-user.sh。" >&2
+has_tinyauth_user "${CONFIG_FILE}" || {
+    echo "缺少登录用户，请先执行 ./scripts/create-user.sh。" >&2
     exit 1
-fi
+}
 
-OLD_DSH_IMAGE_ID="${OLD_DSH_IMAGE_ID:-}"
+# update.sh passes the pre-pull image ID. A direct rebuild captures the image
+# currently used by this Compose project itself.
+OLD_DSH_IMAGE_ID="${OLD_DSH_IMAGE_ID:-$(docker compose images -q dsh 2>/dev/null | head -n 1 || true)}"
 
 echo "停止并删除当前 Compose 项目的旧容器/网络..."
-docker compose down --remove-orphans
+docker compose down --remove-orphans --rmi local
 
-if [[ -n "${OLD_DSH_IMAGE_ID}" ]]; then
-    echo "删除旧 DSH 镜像：${OLD_DSH_IMAGE_ID}"
-    docker image rm -f "${OLD_DSH_IMAGE_ID}" >/dev/null 2>&1 || true
-else
-    # For compose-managed build images without explicit custom tags.
-    docker compose down --rmi local --remove-orphans >/dev/null 2>&1 || true
+# --rmi local is the primary cleanup path for Compose-built images. Keep the
+# captured pre-update ID as a compatibility fallback in case an older Compose
+# release/tagging strategy leaves it behind.
+if [[ -n "${OLD_DSH_IMAGE_ID}" ]] && docker image inspect "${OLD_DSH_IMAGE_ID}" >/dev/null 2>&1; then
+    echo "清理残留旧 DSH 镜像：${OLD_DSH_IMAGE_ID}"
+    docker image rm "${OLD_DSH_IMAGE_ID}" >/dev/null 2>&1 || true
 fi
 
 echo "拉取外部依赖镜像..."
@@ -40,10 +43,8 @@ docker compose build --pull dsh
 echo "启动新容器..."
 docker compose up -d --remove-orphans
 
-# Remove dangling image objects left by the replaced local build, but do not
-# remove tagged/shared upstream images.
 docker image prune -f >/dev/null 2>&1 || true
 
 echo
-echo "重建完成。持久化数据未删除：${RUNTIME_ABS}"
+echo "重建完成；持久化数据保留：${RUNTIME_ABS}"
 docker compose ps
