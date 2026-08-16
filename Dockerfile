@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_VERSION=24.19.0
+ARG NODE_VERSION=24.18.0
 FROM node:${NODE_VERSION}-bookworm-slim
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG GO_VERSION=1.26.6
-ARG GO_SHA256_AMD64=708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89
-ARG GO_SHA256_ARM64=d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256_AMD64=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG GO_SHA256_ARM64=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
 ARG RUST_TOOLCHAIN=stable
 ARG PNPM_VERSION=11.7.0
 ARG DSH_VERSION=latest
@@ -34,8 +34,8 @@ ENV LANG=C.UTF-8 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH=/usr/local/go/bin:/home/node/go/bin:/home/node/.cargo/bin:/home/node/.local/bin:${PATH}
 
-# 通用开发、编译、调试、网络与终端工具。
-# 使用 Debian/glibc，而不是 Alpine/musl，以兼容 DSH 的 Node 原生依赖。
+# 通用开发、编译、调试、网络和终端工具。
+# 使用 Debian/glibc，降低 Node 原生依赖与开发工具的兼容性问题。
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -104,7 +104,7 @@ RUN set -eux; \
     git lfs install --system; \
     rm -rf /var/lib/apt/lists/*
 
-# 安装 Go，并校验官方 SHA256；支持 linux/amd64 与 linux/arm64。
+# Go，支持 linux/amd64 与 linux/arm64，并校验官方 SHA256。
 RUN set -eux; \
     deb_arch="$(dpkg --print-architecture)"; \
     case "${deb_arch}" in \
@@ -122,7 +122,7 @@ RUN set -eux; \
     rm -f "/tmp/${archive}"; \
     go version
 
-# node 官方镜像已内置 UID/GID 1000 的非 root 用户 node。
+# node 官方镜像内置 UID/GID 1000 的非 root 用户 node。
 RUN set -eux; \
     mkdir -p \
         /workspace \
@@ -156,8 +156,7 @@ RUN set -eux; \
     rustc --version; \
     cargo --version
 
-# Node 开发工具与官方 DeepSeek Harness。
-# DSH_VERSION 默认 latest；生产使用建议改为明确版本。
+# Node.js 开发工具与 DeepSeek Harness。
 RUN set -eux; \
     npm install --global --no-audit --no-fund \
         "pnpm@${PNPM_VERSION}" \
@@ -171,7 +170,7 @@ RUN set -eux; \
     pnpm --version; \
     dsh --version
 
-# 可选 Go 开发工具：语言服务器、格式化、调试、静态检查与任务运行器。
+# Go 开发工具：语言服务器、导入整理、调试、静态检查、任务运行器。
 RUN set -eux; \
     if [[ "${INSTALL_GO_DEV_TOOLS}" == 'true' ]]; then \
         go install golang.org/x/tools/gopls@latest; \

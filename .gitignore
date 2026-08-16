@@ -1,7 +1,152 @@
-*.*
+# ============================================================
+# DeepSeek Harness runtime
+# ============================================================
 
-!compose.yaml
-!Dockerfile
-!README.md
-!start-dsh-web.sh
-!.gitignore
+# DSH local runtime/config/state
+/.dsh/
+
+# Runtime data directories
+/data/
+/home/
+/runtime/
+/state/
+/sessions/
+/cache/
+/tmp/
+/temp/
+
+
+# ============================================================
+# Deployment persistent data
+# ============================================================
+
+# Caddy runtime
+/caddy/data/
+/caddy/config/
+
+# Tinyauth runtime
+/tinyauth/data/
+
+# Local authentication data / generated users
+/auth/users.txt
+/auth/users.yml
+/auth/users.yaml
+
+
+# ============================================================
+# Environment / Secrets
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+*.secret
+*.secrets
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+secrets/
+credentials/
+
+
+# ============================================================
+# Logs / Runtime files
+# ============================================================
+
+*.log
+*.log.*
+logs/
+
+*.pid
+*.pid.lock
+
+*.sock
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+
+# ============================================================
+# Node.js
+# ============================================================
+
+node_modules/
+.npm/
+.pnpm-store/
+
+dist/
+build/
+coverage/
+
+*.tsbuildinfo
+
+
+# ============================================================
+# Go
+# ============================================================
+
+bin/
+vendor/
+
+coverage.out
+*.test
+*.prof
+*.pprof
+
+
+# ============================================================
+# Rust
+# ============================================================
+
+target/
+
+
+# ============================================================
+# Python
+# ============================================================
+
+__pycache__/
+*.py[cod]
+
+.venv/
+venv/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+
+# ============================================================
+# IDE / Editor
+# ============================================================
+
+.idea/
+.vscode/
+
+*.code-workspace
+
+
+# ============================================================
+# OS
+# ============================================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# ============================================================
+# Docker local overrides
+# ============================================================
+
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yaml
+docker-compose.override.yml

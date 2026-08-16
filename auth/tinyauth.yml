@@ -1,0 +1,4 @@
+# 由 scripts/create-user.sh 维护。
+# 没有用户时 Tinyauth 不会放行 DSH；部署前请至少创建一个用户。
+auth:
+  users: []
