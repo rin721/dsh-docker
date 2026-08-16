@@ -14,45 +14,31 @@ if [[ ! -f .env ]]; then
     echo "已从 .env.example 创建本地 .env。"
 fi
 load_env "${ROOT_DIR}"
-
 "${ROOT_DIR}/scripts/init-runtime.sh"
-RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
-CONFIG_FILE="${RUNTIME_ABS}/tinyauth/config.yml"
 
-if ! has_tinyauth_user "${CONFIG_FILE}"; then
+DSH_PORT="${DSH_PORT:-3080}"
+validate_port DSH_PORT "${DSH_PORT}"
+
+USERS_FILE="$(users_file "${ROOT_DIR}")"
+if ! has_auth_user "${USERS_FILE}"; then
     echo
     echo "首次部署需要创建登录用户。"
     "${ROOT_DIR}/scripts/create-user.sh"
 fi
 
-DSH_PORT="${DSH_PORT:-3080}"
-AUTH_PORT="${AUTH_PORT:-3081}"
-for port_name in DSH_PORT AUTH_PORT; do
-    port="${!port_name}"
-    [[ "${port}" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )) || {
-        echo "${port_name} 必须是 1-65535 的端口。" >&2
-        exit 1
-    }
-done
-[[ "${DSH_PORT}" != "${AUTH_PORT}" ]] || {
-    echo "DSH_PORT 与 AUTH_PORT 不能相同。" >&2
-    exit 1
-}
-
-AUTH_URL="${AUTH_URL:-http://127.0.0.1:3081}"
-[[ "${AUTH_URL}" =~ ^https?:// ]] || {
-    echo "AUTH_URL 必须以 http:// 或 https:// 开头。" >&2
-    exit 1
-}
-
-if [[ "${BIND_ADDRESS:-127.0.0.1}" == "0.0.0.0" && "${AUTH_URL}" == http://* ]]; then
-    echo "警告：当前配置会通过明文 HTTP 对外提供登录入口。公网部署应使用 HTTPS 反向代理/可选 Edge。" >&2
+if [[ "${BIND_ADDRESS:-127.0.0.1}" == "0.0.0.0" ]]; then
+    echo >&2
+    echo "警告：Gateway 将监听所有宿主机网卡。" >&2
+    echo "HTTP Basic Auth 不应在公网明文 HTTP 上使用；公网部署请在前面配置 HTTPS。" >&2
 fi
 
 docker compose config >/dev/null
 
-echo "拉取外部镜像..."
-docker compose pull tinyauth gateway
+echo "验证 Gateway 配置..."
+docker compose run --rm --no-deps gateway adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+
+echo "拉取 Gateway 镜像..."
+docker compose pull gateway
 
 echo "构建 DSH 开发镜像..."
 docker compose build --pull dsh
@@ -60,10 +46,10 @@ docker compose build --pull dsh
 echo "启动服务..."
 docker compose up -d --remove-orphans
 
+RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
 printf '\n部署完成。\n'
 printf 'Repository : %s\n' "${ROOT_DIR}"
 printf 'Runtime    : %s\n' "${RUNTIME_ABS}"
-printf 'DSH        : %s:%s\n' "${BIND_ADDRESS:-127.0.0.1}" "${DSH_PORT}"
-printf 'Auth URL   : %s\n' "${AUTH_URL}"
+printf 'Gateway    : %s:%s\n' "${BIND_ADDRESS:-127.0.0.1}" "${DSH_PORT}"
 printf '\n查看状态：./scripts/check.sh\n'
-printf '更新仓库并重建：./scripts/update.sh\n'
+printf '仓库更新并重建：./scripts/update.sh\n'

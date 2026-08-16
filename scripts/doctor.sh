@@ -5,38 +5,42 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib.sh"
 cd "${ROOT_DIR}"
 
-fail=0
-check() { printf '%-34s' "$1"; shift; if "$@" >/dev/null 2>&1; then echo "OK"; else echo "FAIL"; fail=1; fi; }
+errors=0
+ok() { printf '[OK] %s\n' "$*"; }
+bad() { printf '[FAIL] %s\n' "$*" >&2; errors=$((errors + 1)); }
+warn() { printf '[WARN] %s\n' "$*" >&2; }
 
-check "docker command" command -v docker
-check "docker compose v2" docker compose version
-check "docker daemon" docker info
-check "git command" command -v git
-check ".env.example" test -f .env.example
-check "compose.yaml" test -f compose.yaml
-check "Dockerfile" test -f Dockerfile
-check "gateway Caddyfile" test -f Caddyfile.gateway
-check "start-dsh-web.sh executable" test -x start-dsh-web.sh
+if command -v docker >/dev/null 2>&1; then ok "docker found"; else bad "docker not found"; fi
+if docker compose version >/dev/null 2>&1; then ok "docker compose v2"; else bad "docker compose v2 unavailable"; fi
+if docker info >/dev/null 2>&1; then ok "docker daemon reachable"; else bad "docker daemon unavailable"; fi
 
 if [[ -f .env ]]; then
+    ok ".env exists"
     load_env "${ROOT_DIR}"
-    runtime="$(runtime_dir_abs "${ROOT_DIR}")"
-    echo "Runtime: ${runtime}"
-    [[ -f "${runtime}/tinyauth/config.yml" ]] && {
-        if has_tinyauth_user "${runtime}/tinyauth/config.yml"; then
-            echo "Tinyauth user configuration: OK"
-        else
-            echo "Tinyauth user configuration: MISSING USER"
-        fi
-    }
-    if docker compose config >/dev/null 2>&1; then
-        echo "docker compose config: OK"
-    else
-        echo "docker compose config: FAIL"
-        fail=1
-    fi
 else
-    echo ".env: not created yet (deploy.sh will create it)"
+    warn ".env 不存在；deploy.sh 会从 .env.example 自动创建"
+    load_env "${ROOT_DIR}" || true
 fi
 
-exit "${fail}"
+if validate_port DSH_PORT "${DSH_PORT:-3080}" >/dev/null 2>&1; then ok "DSH_PORT=${DSH_PORT:-3080}"; else bad "invalid DSH_PORT"; fi
+
+RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
+echo "Runtime: ${RUNTIME_ABS}"
+FILE="$(users_file "${ROOT_DIR}")"
+if has_auth_user "${FILE}"; then ok "至少存在一个 Basic Auth 用户"; else warn "尚未创建认证用户"; fi
+
+if docker compose config >/dev/null 2>&1; then ok "compose config"; else bad "compose config invalid"; fi
+
+if [[ -s "${FILE}" ]] && docker info >/dev/null 2>&1; then
+    if docker compose run --rm --no-deps gateway adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+        ok "Caddy gateway config"
+    else
+        bad "Caddy gateway config invalid"
+    fi
+fi
+
+if [[ "${BIND_ADDRESS:-127.0.0.1}" == "0.0.0.0" ]]; then
+    warn "BIND_ADDRESS=0.0.0.0；若跨不可信网络访问，请务必在前面提供 HTTPS"
+fi
+
+(( errors == 0 )) || exit 1

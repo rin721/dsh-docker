@@ -2,7 +2,7 @@
     email {$ACME_EMAIL}
 }
 
-(edge_security) {
+{$DSH_DOMAIN} {
     header {
         -Server
         X-Content-Type-Options "nosniff"
@@ -10,15 +10,8 @@
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
         Strict-Transport-Security "max-age=31536000"
     }
-}
 
-{$AUTH_DOMAIN} {
-    import edge_security
-    reverse_proxy gateway:3081
-}
-
-{$DSH_DOMAIN} {
-    import edge_security
+    # 认证仍然由 Core gateway 负责；Edge 只负责域名/TLS。
     reverse_proxy gateway:3080 {
         flush_interval -1
     }

@@ -4,9 +4,7 @@ project_root() {
     cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 }
 
-# Minimal dotenv reader for the shell scripts. It intentionally does NOT use
-# `source`, so a value in .env cannot execute shell commands. Docker Compose
-# still reads the same .env file independently for variable interpolation.
+# 安全的简单 dotenv 读取器：不 source、不 eval，因此 .env 内容不会被当成 shell 命令执行。
 load_env() {
     local root="$1"
     local file="${root}/.env"
@@ -19,7 +17,6 @@ load_env() {
         [[ "${line}" =~ ^[[:space:]]*$ ]] && continue
         [[ "${line}" =~ ^[[:space:]]*# ]] && continue
 
-        # Allow optional leading `export ` for convenience.
         line="${line#export }"
         [[ "${line}" == *=* ]] || continue
 
@@ -30,8 +27,6 @@ load_env() {
 
         [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
 
-        # Trim surrounding whitespace from the value, then remove one matching
-        # pair of simple quotes/double quotes. No eval/command substitution.
         value="${value#"${value%%[![:space:]]*}"}"
         value="${value%"${value##*[![:space:]]}"}"
         if [[ ${#value} -ge 2 ]]; then
@@ -67,13 +62,34 @@ require_docker() {
         exit 1
     }
     docker info >/dev/null 2>&1 || {
-        echo "Docker daemon 不可用或当前用户无权限访问 Docker。" >&2
+        echo "Docker daemon 不可用，或当前用户无权限访问 Docker。" >&2
         exit 1
     }
 }
 
-has_tinyauth_user() {
+validate_port() {
+    local name="$1"
+    local value="$2"
+    [[ "${value}" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )) || {
+        echo "${name} 必须是 1-65535 的端口，当前值：${value}" >&2
+        return 1
+    }
+}
+
+users_file() {
+    local root="$1"
+    local runtime
+    runtime="$(runtime_dir_abs "${root}")"
+    printf '%s/auth/users.caddy\n' "${runtime}"
+}
+
+has_auth_user() {
     local file="$1"
-    [[ -f "${file}" ]] || return 1
-    LC_ALL=C grep -Eq '\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}' "${file}"
+    [[ -s "${file}" ]] || return 1
+    LC_ALL=C grep -Eq '^[A-Za-z0-9._@-]+[[:space:]]+\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}[[:space:]]*$' "${file}"
+}
+
+compose_project_name() {
+    local root="$1"
+    basename "${root}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g'
 }

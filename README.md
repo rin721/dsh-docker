@@ -1,177 +1,92 @@
 # dsh-docker
 
-DeepSeek Harness 的通用 Docker 开发与运行环境。
+一个以 **Git 仓库本身作为部署单元** 的 DeepSeek Harness Docker 开发环境。
 
-项目采用 **“仓库即部署单元（repository as deployment unit）”** 的方式：仓库 clone 到任意目录即可部署，默认的运行数据、工作区、DSH 状态与登录数据都跟随该仓库保存在 `./.runtime/` 中，不依赖 `/var/lib/.dsh`、`/opt/...` 等固定宿主机路径。
+目标是保持部署边界简单、通用：
 
-同时，项目给 DeepSeek Harness 前置了一个轻量登录层：
+- 不固定宿主机 `/var/lib/.dsh` 等路径；仓库 clone 到哪里就从哪里运行；
+- 默认运行数据保存在仓库自己的 `.runtime/`；
+- Core 不强制域名、TLS、80/443；
+- 对外端口、监听地址均由 `.env` 配置；
+- DeepSeek Harness、Node.js、Go、Rust、Python 和常用开发工具都运行在 DSH 容器内；
+- Caddy Gateway 在 DSH 前提供用户名/密码认证；
+- 用户侧只需要浏览器，无需 SSH 隧道、VPN 或额外客户端；
+- 更新仓库后可通过 `update.sh` 自动停止旧容器、删除旧 DSH 构建镜像、构建新镜像并启动；
+- `.runtime` 在重建/更新过程中保持不变。
 
-```text
-Browser
-   |
-   | DSH_PORT
-   v
-Authentication Gateway (Caddy)
-   |
-   | forward_auth
-   v
-Tinyauth
-   |
-   | authenticated
-   v
-DeepSeek Harness
-   |
-   v
-/workspace
-```
-
-核心部署不强制：
-
-- 域名；
-- TLS/HTTPS；
-- 80/443；
-- 固定宿主机目录；
-- SSH 隧道；
-- Tailscale/VPN；
-- Docker Socket 挂载。
-
-如果需要公网正式访问，可以将 Core 监听在 `127.0.0.1`，然后使用现有 Nginx、1Panel/OpenResty、Caddy、Cloudflare Tunnel 等作为外层入口；仓库也提供一个 **可选** 的 Caddy HTTPS Edge。
+> **安全提醒**：Core 登录层使用 HTTP Basic Authentication。Basic Auth 必须运行在可信网络或 HTTPS 后面。默认 `BIND_ADDRESS=127.0.0.1`，适合由 Nginx、1Panel、Caddy 等本机反向代理提供 HTTPS。不要把明文 HTTP Basic Auth 直接暴露到公网。
 
 ---
 
-## 1. 特性
+## 1. 架构
 
-### DeepSeek Harness
-
-- 安装 `@deepseek-ai/dsh`；
-- Web UI 运行在独立 DSH 容器；
-- `/workspace` 作为 Agent 工作目录；
-- DSH 配置/会话持久化；
-- 默认 `workspace-write` 权限模式；
-- 不挂载宿主机 Docker Socket。
-
-### 完整开发环境
-
-DSH 容器包含：
-
-- Node.js LTS、npm、pnpm、TypeScript、tsx；
-- Go、gopls、goimports、Delve、staticcheck、Task；
-- Rust stable、cargo、rustfmt、clippy、rust-analyzer；
-- Python 3、pip、pipx、venv；
-- Git、Git LFS、OpenSSH Client；
-- curl、wget、jq、ripgrep、fd、fzf；
-- gcc/g++、make、CMake、Ninja；
-- Clang、clangd、GDB、LLDB、strace；
-- SQLite、OpenSSL、protobuf；
-- tmux、vim、nano、rsync、zip/unzip、shellcheck；
-- 常用网络排查工具。
-
-### 登录保护
-
-- Tinyauth 本地用户名/密码登录；
-- bcrypt 密码 Hash；
-- Session Cookie；
-- 登录失败次数限制；
-- Caddy `forward_auth`；
-- DSH 与 Tinyauth 本体不直接向宿主机发布端口；
-- 对外只发布 Authentication Gateway 的可配置端口。
-
-### 生命周期
+默认 Core：
 
 ```text
-git clone
-   |
-   v
-./scripts/deploy.sh
-   |
-   v
-running
-   |
-   +---- ./scripts/rebuild.sh
-   |          |
-   |          +--> 删除旧容器/旧 DSH 镜像
-   |          +--> 重建
-   |
-   +---- ./scripts/update.sh
-              |
-              +--> git fetch / git pull --ff-only
-              +--> 删除旧容器/旧 DSH 镜像
-              +--> 使用刚 pull 下来的新版脚本重建
-```
-
-`.runtime/` 在 deploy / rebuild / update / stop 过程中都不会被自动删除。
-
----
-
-# 2. 架构
-
-## Core
-
-```text
-                          Docker host
-
 Browser / Reverse Proxy
           |
-          | ${DSH_PORT}
+          | configurable host:port
           v
-+-------------------------------+
-| gateway                       |
-| Caddy                         |
-|                               |
-| :3080 protected DSH endpoint  |
-| :3081 public login endpoint   |
-+-------------+-----------------+
-              |
-              | forward_auth
-              v
-        +-----------+
-        | Tinyauth  |
-        | :3000     |
-        +-----+-----+
-              |
-              | authenticated
-              v
-        +-----------+
-        | DSH       |
-        | :3080     |
-        +-----+-----+
-              |
-              v
-         /workspace
-              |
-              | bind mount
-              v
++-----------------------------+
+| Caddy Authentication Gateway|
+| Basic Auth                  |
++--------------+--------------+
+               |
+               | authenticated
+               v
++-----------------------------+
+| DeepSeek Harness            |
+| /workspace                  |
+| Node / Go / Rust / Python   |
++--------------+--------------+
+               |
+               | bind mount
+               v
 <repo>/.runtime/workspace
 ```
 
-宿主机不会直接映射：
+Core 只有两个服务：
 
 ```text
-DSH container      :3080
-Tinyauth container :3000
+dsh
+  DeepSeek Harness + 完整开发工具链
+
+gateway
+  Caddy Basic Auth + reverse_proxy
 ```
 
-真正发布的是 Gateway：
+可选 HTTPS Edge：
 
 ```text
-${BIND_ADDRESS}:${DSH_PORT}  -> gateway:3080
-${BIND_ADDRESS}:${AUTH_PORT} -> gateway:3081
+Internet
+   |
+ HTTPS :443
+   v
+Caddy Edge
+   |
+   v
+Core Gateway (Basic Auth)
+   |
+   v
+DSH
 ```
+
+也可以完全不用仓库提供的 Edge，而使用已有的 Nginx、1Panel、OpenResty、Traefik、Cloudflare 等。
 
 ---
 
-# 3. 仓库目录
+## 2. 目录结构
+
+仓库：
 
 ```text
 dsh-docker/
 ├── Dockerfile
 ├── compose.yaml
 ├── compose.edge.caddy.yaml
-│
 ├── Caddyfile.gateway
 ├── Caddyfile.edge
 ├── start-dsh-web.sh
-│
 ├── .env.example
 ├── .gitignore
 ├── .dockerignore
@@ -183,8 +98,6 @@ dsh-docker/
 │
 ├── examples/
 │   └── nginx.conf
-│
-├── docs/
 │
 └── scripts/
     ├── lib.sh
@@ -203,100 +116,61 @@ dsh-docker/
     └── edge-down.sh
 ```
 
-首次运行后生成：
+首次运行后自动生成：
 
 ```text
 dsh-docker/
-├── .env                    # Git ignored
-└── .runtime/               # Git ignored
-    ├── workspace/
-    ├── dsh-home/
-    ├── tinyauth/
-    │   ├── config.yml
-    │   └── data/
+├── .env                         # 本地配置，Git ignore
+└── .runtime/                    # 所有运行数据，Git ignore
+    ├── workspace/               # -> DSH /workspace
+    ├── dsh-home/                # -> DSH /home/node/.dsh
+    ├── auth/
+    │   └── users.caddy          # Basic Auth 用户名 + bcrypt Hash
     └── edge/
         └── caddy/
-            ├── data/
+            ├── data/            # 可选 Edge TLS/ACME 数据
             └── config/
 ```
 
----
+没有任何必须写死到 `/var/lib/.dsh` 的路径。
 
-# 4. 持久化模型
-
-默认：
-
-```dotenv
-RUNTIME_DIR=./.runtime
-```
-
-所以仓库 clone 在：
+例如仓库位于：
 
 ```text
 /var/lib/dsh-docker
 ```
 
-运行数据就是：
+默认 Runtime 就是：
 
 ```text
 /var/lib/dsh-docker/.runtime
 ```
 
-如果 clone 在：
+仓库位于：
 
 ```text
-/home/xiaolin/services/dsh-docker
+/root/apps/dsh-docker
 ```
 
-运行数据自然变成：
+默认 Runtime 就是：
 
 ```text
-/home/xiaolin/services/dsh-docker/.runtime
+/root/apps/dsh-docker/.runtime
 ```
-
-没有任何固定绝对路径要求。
-
-也可以主动覆盖：
-
-```dotenv
-RUNTIME_DIR=./runtime
-```
-
-或：
-
-```dotenv
-RUNTIME_DIR=/mnt/ssd/dsh-runtime
-```
-
-### 映射关系
-
-| 宿主机 | 容器 | 用途 |
-|---|---|---|
-| `${RUNTIME_DIR}/workspace` | `/workspace` | Agent 项目工作区 |
-| `${RUNTIME_DIR}/dsh-home` | `/home/node/.dsh` | DSH 配置、会话、插件等 |
-| `${RUNTIME_DIR}/tinyauth/config.yml` | `/config/tinyauth.yml` | 登录用户 bcrypt 配置 |
-| `${RUNTIME_DIR}/tinyauth/data` | `/data` | Tinyauth SQLite/runtime |
-| `${RUNTIME_DIR}/edge/caddy/*` | `/data`、`/config` | 可选 HTTPS Edge 数据 |
 
 ---
 
-# 5. 前置要求
+## 3. 宿主机要求
 
-宿主机只需要：
+宿主机只要求：
 
 - Linux；
 - Git；
 - Docker Engine；
-- Docker Compose v2 (`docker compose`)；
-- 能访问构建所需的软件源/镜像仓库。
+- Docker Compose v2（`docker compose`）；
+- 能访问 Docker Hub、npm、Go/Rust 下载源等构建所需网络资源。
 
-宿主机 **不需要** 安装：
-
-- Node.js；
-- Go；
-- Rust；
-- Python 开发环境；
-- DeepSeek Harness。
+宿主机**不需要**预装 Node.js、Go、Rust、Python 开发环境，这些都在 DSH 容器中。
 
 检查：
 
@@ -307,346 +181,207 @@ docker compose version
 docker info
 ```
 
-也可以 clone 后执行：
-
-```bash
-./scripts/doctor.sh
-```
-
 ---
 
-# 6. 首次部署
+## 4. 快速部署
 
-## 6.1 Clone
-
-**推荐始终通过 Git clone 部署。** `scripts/update.sh` 依赖 `.git` 来执行 `git fetch` / `git pull`。
-
-ZIP/TAR 包更适合作为源码快照、审阅或上传到仓库；如果直接解压运行，`deploy.sh` / `rebuild.sh` 可以使用，但 `update.sh` 在没有 `.git` 时会明确拒绝执行。
-
-仓库可以 clone 到任意目录：
+### 4.1 Clone
 
 ```bash
 git clone https://github.com/rin721/dsh-docker.git
 cd dsh-docker
 ```
 
-如果 Git 没有保留执行位，可执行：
+仓库可以 clone 到任意目录。
 
-```bash
-chmod +x scripts/*.sh start-dsh-web.sh
-```
+### 4.2 首次部署
 
-## 6.2 默认一键部署
-
-直接：
+直接执行：
 
 ```bash
 ./scripts/deploy.sh
 ```
 
-首次执行会自动：
-
-1. 检查 Docker / Compose；
-2. 从 `.env.example` 创建 `.env`；
-3. 创建 `.runtime/`；
-4. 初始化 workspace、DSH home、Tinyauth 数据目录；
-5. 如果没有用户，进入交互式用户创建；
-6. 使用 Tinyauth 官方 CLI 生成 bcrypt Hash；
-7. 拉取 Tinyauth 和 Gateway Caddy；
-8. 构建 DSH 开发镜像；
-9. 启动完整 Compose 项目。
-
-第一次会看到：
+如果 `.env` 不存在，脚本会自动：
 
 ```text
-Repository runtime: /path/to/dsh-docker/.runtime
+.env.example -> .env
+```
 
+如果尚未创建认证用户，会交互提示：
+
+```text
 首次部署需要创建登录用户。
 用户名: xiaolin
 密码:
 再次输入密码:
 ```
 
-成功后类似：
+密码不会明文写入磁盘。脚本通过 Caddy 官方 `hash-password` 生成 bcrypt Hash，最终写入：
 
 ```text
-用户 'xiaolin' 创建/更新成功。
-配置文件：/path/to/dsh-docker/.runtime/tinyauth/config.yml
-明文密码不会保存。
+.runtime/auth/users.caddy
 ```
 
-随后继续构建并启动。
+随后自动：
+
+```text
+初始化 .runtime
+      ↓
+校验 Compose / Gateway 配置
+      ↓
+拉取 Caddy Gateway 镜像
+      ↓
+构建 DSH 开发镜像
+      ↓
+启动 dsh + gateway
+```
+
+### 4.3 查看状态
+
+```bash
+./scripts/check.sh
+```
+
+或者：
+
+```bash
+docker compose ps
+docker compose logs -f --tail=200
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:3080
+```
+
+浏览器会显示 HTTP Basic Auth 用户名/密码弹窗；认证成功后进入 DeepSeek Harness。
 
 ---
 
-# 7. `.env` 完整配置
+## 5. 配置 `.env`
 
-首次 `deploy.sh` 会自动执行：
+首次 `deploy.sh` 自动创建：
 
 ```bash
 cp .env.example .env
 ```
 
-你也可以部署前自己创建：
+可以手动编辑：
 
 ```bash
-cp .env.example .env
 nano .env
 ```
 
-## 7.1 Runtime
+### 5.1 Runtime
 
-### `RUNTIME_DIR`
+```dotenv
+RUNTIME_DIR=./.runtime
+RUNTIME_UID=1000
+RUNTIME_GID=1000
+```
+
+`RUNTIME_DIR` 支持：
 
 ```dotenv
 RUNTIME_DIR=./.runtime
 ```
 
-运行数据目录。
-
-支持：
-
-```text
-./.runtime
-./runtime
-../dsh-data
-/mnt/ssd/dsh
+```dotenv
+RUNTIME_DIR=./data
 ```
 
-### `RUNTIME_UID` / `RUNTIME_GID`
+或者绝对路径：
 
 ```dotenv
-RUNTIME_UID=1000
-RUNTIME_GID=1000
+RUNTIME_DIR=/mnt/ssd/dsh-runtime
 ```
 
-用于 root 部署时修正 DSH/Tinyauth bind mount 的数值权限。
+默认推荐仓库内 `.runtime`，这样仓库天然成为完整部署单元。
 
-默认镜像栈按 UID/GID `1000:1000` 运行需要持久化数据的非 root 进程。
-
-一般不需要修改。
-
----
-
-## 7.2 Core 网络
-
-### `BIND_ADDRESS`
+### 5.2 网络
 
 默认：
 
 ```dotenv
 BIND_ADDRESS=127.0.0.1
+DSH_PORT=3080
 ```
 
 含义：
 
 ```text
-127.0.0.1
+127.0.0.1:3080 -> Gateway -> DSH
 ```
 
-仅服务器本机或本机反向代理可以访问。
-
-这是推荐默认值。
-
-如果是受信任的 LAN 测试环境：
+#### 本机反代模式（推荐服务器部署）
 
 ```dotenv
-BIND_ADDRESS=0.0.0.0
-```
-
-则 Gateway 会监听所有网卡。
-
-> 不建议直接把 HTTP 用户名/密码登录暴露到公网。
-
-### `DSH_PORT`
-
-```dotenv
-DSH_PORT=3080
-```
-
-受保护的 DSH Gateway 端口。
-
-可以改成：
-
-```dotenv
+BIND_ADDRESS=127.0.0.1
 DSH_PORT=13080
 ```
 
-### `AUTH_PORT`
-
-```dotenv
-AUTH_PORT=3081
-```
-
-Tinyauth 登录页面 Gateway 端口。
-
-必须和 `DSH_PORT` 不同。
-
-### `AUTH_URL`
-
-```dotenv
-AUTH_URL=http://localhost:3081
-```
-
-这是 **用户浏览器实际访问 Tinyauth 的 URL**，不是容器内部地址。
-
-本地测试：
-
-```dotenv
-AUTH_URL=http://localhost:3081
-```
-
-LAN：
-
-```dotenv
-AUTH_URL=http://192.168.1.20:9001
-```
-
-外部反向代理：
-
-```dotenv
-AUTH_URL=https://auth.example.com
-```
-
----
-
-## 7.3 Tinyauth
-
-### `TINYAUTH_SECURE_COOKIE`
-
-HTTP：
-
-```dotenv
-TINYAUTH_SECURE_COOKIE=false
-```
-
-HTTPS：
-
-```dotenv
-TINYAUTH_SECURE_COOKIE=true
-```
-
-如果开启 `true`，浏览器只会通过 HTTPS 发送认证 Cookie。
-
-### `TINYAUTH_SESSION_EXPIRY`
-
-```dotenv
-TINYAUTH_SESSION_EXPIRY=86400
-```
-
-Session 有效期，单位秒。
-
-常见：
+然后让 Nginx/1Panel/Caddy：
 
 ```text
-3600    = 1 小时
-86400   = 1 天
-604800  = 7 天
+https://dsh.example.com
+        ↓
+http://127.0.0.1:13080
 ```
 
-### `TINYAUTH_SESSION_MAX_LIFETIME`
+#### 局域网直接访问
 
 ```dotenv
-TINYAUTH_SESSION_MAX_LIFETIME=0
+BIND_ADDRESS=0.0.0.0
+DSH_PORT=3080
 ```
 
-最大 Session 生命周期；`0` 使用 Tinyauth 默认/不额外限制。
+浏览器：
 
-### `TINYAUTH_LOGIN_TIMEOUT`
+```text
+http://192.168.1.20:3080
+```
+
+仅建议可信局域网。HTTP Basic Auth 的凭据不能在不可信网络上通过明文 HTTP 传输。
+
+#### 指定某块网卡
 
 ```dotenv
-TINYAUTH_LOGIN_TIMEOUT=300
+BIND_ADDRESS=192.168.1.20
+DSH_PORT=9000
 ```
 
-登录流程超时秒数。
-
-### `TINYAUTH_LOGIN_MAX_RETRIES`
+### 5.3 登录层
 
 ```dotenv
-TINYAUTH_LOGIN_MAX_RETRIES=3
+AUTH_REALM="DeepSeek Harness"
+AUTH_BCRYPT_COST=14
+GATEWAY_CADDY_VERSION=2.11.4
 ```
 
-允许的登录失败重试次数。
+`AUTH_REALM` 是浏览器认证弹窗显示的 Realm。
 
-### `TINYAUTH_TRUSTED_PROXIES`
+真实用户名和 Hash 不放 `.env`，而放：
 
-默认空：
-
-```dotenv
-TINYAUTH_TRUSTED_PROXIES=
+```text
+.runtime/auth/users.caddy
 ```
 
-只有需要让 Tinyauth 信任特定代理转发的真实客户端 IP，或者配置基于 IP 的 ACL 时再设置。
+避免 `$` Hash 被 Compose 环境变量插值影响。
 
-### `AUTH_UI_TITLE`
-
-```dotenv
-AUTH_UI_TITLE="DeepSeek Harness"
-```
-
-项目脚本使用无 `eval` 的 dotenv 解析器读取 `.env`；包含空格的值建议使用引号，以同时保持 Docker Compose 与人工阅读的一致性。
-
-### `TINYAUTH_VERSION`
-
-```dotenv
-TINYAUTH_VERSION=v5.1.3
-```
-
-建议使用明确版本，不建议生产环境随意使用 `latest`。
-
----
-
-## 7.4 DSH
-
-### `DSH_VERSION`
-
-默认：
+### 5.4 DeepSeek Harness
 
 ```dotenv
 DSH_VERSION=latest
-```
-
-表示 Docker build 时：
-
-```bash
-npm install -g @deepseek-ai/dsh@latest
-```
-
-长期运行时建议在验证后固定版本，例如：
-
-```dotenv
-DSH_VERSION=0.1.0-rc.x
-```
-
-### `DSH_PERMISSION_MODE`
-
-```dotenv
 DSH_PERMISSION_MODE=workspace-write
-```
-
-表示 DSH 可操作 `/workspace`。
-
-### `DSH_TELEMETRY_DISABLED`
-
-```dotenv
 DSH_TELEMETRY_DISABLED=1
-```
-
-### `INSTALL_GO_DEV_TOOLS`
-
-```dotenv
 INSTALL_GO_DEV_TOOLS=true
 ```
 
-关闭可减少镜像构建时间：
+长期环境建议将 `DSH_VERSION` 固定为你验证过的具体版本，以提高可重复构建能力。
 
-```dotenv
-INSTALL_GO_DEV_TOOLS=false
-```
-
----
-
-## 7.5 开发工具版本
+### 5.5 开发工具版本
 
 ```dotenv
 NODE_VERSION=24.18.0
@@ -655,362 +390,72 @@ RUST_TOOLCHAIN=stable
 PNPM_VERSION=11.7.0
 ```
 
-修改以后需要重新 build：
+### 5.6 代理
 
-```bash
-./scripts/rebuild.sh
-```
-
----
-
-## 7.6 容器内代理
-
-例如：
+如服务器构建或容器网络需要代理：
 
 ```dotenv
-HTTP_PROXY=http://proxy.example.com:7890
-HTTPS_PROXY=http://proxy.example.com:7890
-NO_PROXY=localhost,127.0.0.1,dsh,tinyauth,gateway
+HTTP_PROXY=http://proxy.example:7890
+HTTPS_PROXY=http://proxy.example:7890
+NO_PROXY=localhost,127.0.0.1,dsh,gateway
 ```
 
-这些变量会进入 DSH 容器，供：
-
-```text
-git
-curl
-npm/pnpm
-go
-cargo
-pip
-```
-
-等工具使用。
+这些变量会传给 DSH 容器中的 Node、npm、git、curl 等工具。
 
 ---
 
-# 8. 三种典型部署模式
+## 6. 用户管理
 
-## 模式 A：服务器本机 / 本地反向代理
-
-最安全的默认 Core：
-
-```dotenv
-BIND_ADDRESS=127.0.0.1
-DSH_PORT=3080
-AUTH_PORT=3081
-AUTH_URL=http://localhost:3081
-TINYAUTH_SECURE_COOKIE=false
-```
-
-只有宿主机可以连接：
-
-```text
-127.0.0.1:3080
-127.0.0.1:3081
-```
-
-适合：
-
-- 同机 Nginx；
-- 同机 1Panel；
-- 同机 Caddy；
-- 调试。
-
----
-
-## 模式 B：局域网直接访问
-
-假设服务器：
-
-```text
-192.168.1.20
-```
-
-配置：
-
-```dotenv
-BIND_ADDRESS=0.0.0.0
-DSH_PORT=9000
-AUTH_PORT=9001
-AUTH_URL=http://192.168.1.20:9001
-TINYAUTH_SECURE_COOKIE=false
-```
-
-访问：
-
-```text
-http://192.168.1.20:9000
-```
-
-未登录时会跳到：
-
-```text
-http://192.168.1.20:9001
-```
-
-此模式仅建议受信任网络/临时测试。
-
----
-
-## 模式 C：已有 Nginx / 1Panel / OpenResty
-
-Core：
-
-```dotenv
-BIND_ADDRESS=127.0.0.1
-DSH_PORT=13080
-AUTH_PORT=13081
-AUTH_URL=https://auth.example.com
-TINYAUTH_SECURE_COOKIE=true
-```
-
-反向代理：
-
-```text
-https://dsh.example.com
-        -> http://127.0.0.1:13080
-
-https://auth.example.com
-        -> http://127.0.0.1:13081
-```
-
-项目附带：
-
-```text
-examples/nginx.conf
-```
-
-正式的多子域认证建议：
-
-```text
-auth.example.com
-dsh.example.com
-```
-
-使用相同父域。
-
----
-
-# 9. 可选 Caddy HTTPS Edge
-
-Core 本身不会要求 80/443。
-
-如果你没有现成反向代理，但主动希望仓库自己提供域名 + 自动 HTTPS，可以启用：
-
-```text
-compose.edge.caddy.yaml
-Caddyfile.edge
-```
-
-## 9.1 配置
-
-编辑 `.env`：
-
-```dotenv
-DSH_DOMAIN=dsh.example.com
-AUTH_DOMAIN=auth.example.com
-ACME_EMAIL=admin@example.com
-
-AUTH_URL=https://auth.example.com
-TINYAUTH_SECURE_COOKIE=true
-
-EDGE_BIND_ADDRESS=0.0.0.0
-EDGE_HTTP_PORT=80
-EDGE_HTTPS_PORT=443
-```
-
-DNS：
-
-```text
-dsh.example.com  -> server IP
-auth.example.com -> server IP
-```
-
-## 9.2 启动
-
-```bash
-./scripts/edge-up.sh
-```
-
-## 9.3 停止
-
-```bash
-./scripts/edge-down.sh
-```
-
-Edge 数据保存在：
-
-```text
-.runtime/edge/caddy
-```
-
----
-
-# 10. 登录用户管理
-
-真实用户配置：
-
-```text
-.runtime/tinyauth/config.yml
-```
-
-不会提交到 Git。
-
-## 创建用户
+### 创建用户 / 修改密码
 
 ```bash
 ./scripts/create-user.sh
 ```
 
-例如：
+同名用户再次创建 = 更新该用户密码。
 
-```text
-用户名: xiaolin
-密码:
-再次输入密码:
-```
+脚本通过 stdin 把明文密码传给临时 Caddy 容器进行 Hash，不使用 `--plaintext <password>` 命令参数，因此明文密码不会写进仓库或用户配置文件。
 
-脚本调用 **Tinyauth 官方 CLI** 生成 bcrypt Hash。
-
-重要：脚本不再依赖 Tinyauth CLI 的：
-
-```text
-Environment variable:
-CLI flags:
-YAML config:
-```
-
-等展示文本，而是直接从完整 CLI 输出提取标准 bcrypt token，因此兼容不同 patch 版本的输出格式。
-
-生成：
-
-```yaml
-auth:
-  users:
-    - "xiaolin:$2a$10$..."
-```
-
-明文密码不会写入磁盘。
-
-如果同名用户已经存在，再运行一次 `create-user.sh` 会替换该用户的密码 Hash。
-
-## 查看用户
+### 查看用户
 
 ```bash
 ./scripts/list-users.sh
 ```
 
-或：
-
-```bash
-make users
-```
-
 只显示用户名，不显示 Hash。
 
-## 删除用户
-
-```bash
-./scripts/remove-user.sh xiaolin
-```
-
-或交互：
+### 删除用户
 
 ```bash
 ./scripts/remove-user.sh
 ```
 
-运行中的服务需要重新加载：
+如果删掉最后一个用户，脚本会停止 Gateway，避免产生无认证配置的异常状态。随后必须：
 
 ```bash
-docker compose restart tinyauth gateway
+./scripts/create-user.sh
 ```
 
----
+重新创建用户。
 
-# 11. 查看状态
-
-```bash
-./scripts/check.sh
-```
-
-或：
-
-```bash
-docker compose ps
-```
-
-日志：
-
-```bash
-docker compose logs -f --tail=200
-```
-
-只看 DSH：
-
-```bash
-docker compose logs -f --tail=200 dsh
-```
-
-Tinyauth：
-
-```bash
-docker compose logs -f --tail=200 tinyauth
-```
-
-Gateway：
-
-```bash
-docker compose logs -f --tail=200 gateway
-```
-
----
-
-# 12. 进入开发容器
-
-```bash
-docker compose exec dsh bash
-```
-
-默认：
-
-```bash
-pwd
-```
-
-输出：
+### 用户文件
 
 ```text
-/workspace
+.runtime/auth/users.caddy
 ```
 
-验证：
+示例：
 
-```bash
-node --version
-npm --version
-pnpm --version
-
-go version
-gopls version
-dlv version
-
-rustc --version
-cargo --version
-rust-analyzer --version
-
-python --version
-pip --version
-
-git --version
-curl --version
-
-dsh --version
+```text
+alice $2a$14$...
+bob $2a$14$...
 ```
+
+它只存 bcrypt Hash，但仍应视为敏感数据：Hash 可被离线猜解，不应提交 Git 或公开。
 
 ---
 
-# 13. 项目工作区
+## 7. DSH 工作区
 
 宿主机：
 
@@ -1024,580 +469,504 @@ dsh --version
 /workspace
 ```
 
-例如：
+直接把开发项目 clone 到：
 
 ```bash
 cd .runtime/workspace
-git clone https://github.com/example/project.git
+git clone https://github.com/your/project.git
 ```
 
-DSH 看到：
+进入容器：
 
-```text
-/workspace/project
+```bash
+docker compose exec dsh bash
 ```
 
-Agent 对：
+容器内：
 
-```text
-/workspace/project/main.go
+```bash
+cd /workspace/project
 ```
 
-的修改会直接持久化到宿主机：
+DSH Web/Agent 对 `/workspace` 的修改会直接持久化到宿主机 `.runtime/workspace`。
+
+---
+
+## 8. 开发环境
+
+DSH 镜像包含：
+
+### Node.js
 
 ```text
-.runtime/workspace/project/main.go
+node
+npm
+pnpm
+typescript
+tsx
+```
+
+### Go
+
+```text
+go
+gofmt
+gopls
+goimports
+dlv
+staticcheck
+task
+```
+
+### Rust
+
+```text
+rustup
+rustc
+cargo
+rustfmt
+clippy
+rust-analyzer
+```
+
+### Python
+
+```text
+python3
+python
+pip
+pipx
+venv
+```
+
+### 编译/调试
+
+```text
+gcc
+g++
+make
+cmake
+ninja
+clang
+clangd
+gdb
+lldb
+strace
+protobuf-compiler
+```
+
+### 通用 CLI
+
+```text
+git
+git-lfs
+ssh
+curl
+wget
+jq
+ripgrep
+fd
+fzf
+tree
+tmux
+vim
+nano
+rsync
+zip
+unzip
+openssl
+sqlite3
+shellcheck
+dig
+ping
+ip
+lsof
+socat
+```
+
+检查：
+
+```bash
+docker compose exec dsh bash
+
+node --version
+pnpm --version
+go version
+rustc --version
+cargo --version
+python --version
+git --version
+curl --version
+dsh --version
 ```
 
 ---
 
-# 14. 更新仓库
+## 9. 更新仓库并重建
 
-这是项目设计的主要使用方式。
-
-以后 GitHub 仓库更新时，不需要重新 clone。
-
-进入现有仓库：
-
-```bash
-cd /wherever/dsh-docker
-```
-
-运行：
+日常升级只需要：
 
 ```bash
 ./scripts/update.sh
 ```
 
-完整流程：
+流程：
 
 ```text
-检查当前目录是 Git repository
-        |
-        v
-检查 tracked 文件是否存在未提交修改
-        |
-        v
-记录当前 DSH build image ID
-        |
-        v
+检查 Git working tree
+      ↓
+记录当前 DSH image ID
+      ↓
 git fetch --prune
-        |
-        v
+      ↓
 git pull --ff-only
-        |
-        v
-exec 新版本 scripts/rebuild.sh
-        |
-        v
+      ↓
+执行“刚 pull 下来的”新版 rebuild.sh
+      ↓
 docker compose down --remove-orphans --rmi local
-        |
-        v
-删除/清理旧 DSH image
-        |
-        v
-pull Tinyauth / Gateway
-        |
-        v
+      ↓
+删除残留旧 DSH build image
+      ↓
+pull Gateway
+      ↓
 build --pull dsh
-        |
-        v
-up -d --remove-orphans
-        |
-        v
-prune dangling images
+      ↓
+up -d
+      ↓
+清理 dangling images
 ```
 
-### 为什么使用 `exec scripts/rebuild.sh`
-
-因为 `git pull` 可能连 `rebuild.sh` 自己也更新。
-
-执行：
+不会执行：
 
 ```bash
-exec "${ROOT_DIR}/scripts/rebuild.sh"
+rm -rf .runtime
+docker compose down -v
 ```
 
-可以确保重建阶段使用的是 **刚刚 pull 下来的新版重建逻辑**。
+如果更新前可选 HTTPS Edge 正在运行，`rebuild.sh` 会检测并在 Core 重建完成后恢复 Edge。
 
-### 本地修改保护
-
-如果存在：
+因此以下数据保留：
 
 ```text
-M Dockerfile
-M compose.yaml
+.runtime/workspace
+.runtime/dsh-home
+.runtime/auth
+.runtime/edge
+.env
 ```
 
-`update.sh` 会拒绝继续，不会自动覆盖。
-
-先选择：
+如果 tracked 文件存在本地修改，`update.sh` 会拒绝 pull，要求先：
 
 ```bash
 git commit
 ```
 
-或者：
+或：
 
 ```bash
 git stash
 ```
 
-或者：
-
-```bash
-git restore ...
-```
-
-`.env` 和 `.runtime/` 已被 ignore，所以不会阻塞 update。
+或撤销修改，避免自动覆盖仓库代码。
 
 ---
 
-# 15. 仅重建，不 Git Pull
-
-修改了：
-
-```text
-Dockerfile
-compose.yaml
-start-dsh-web.sh
-.env 中的 DSH/Node/Go/Rust 版本
-```
-
-可以：
+## 10. 只重建，不 Git pull
 
 ```bash
 ./scripts/rebuild.sh
 ```
 
-它会：
+适用于：
 
-1. 停止/删除当前 Compose 容器与本项目本地构建镜像；
-2. 使用更新前记录的 image ID 做兼容性残留清理；
-3. 保留 `.runtime`；
-4. 拉取外部镜像；
-5. build 新 DSH；
-6. 启动新容器。
+- 修改 `.env` 中构建参数；
+- 修改 Dockerfile；
+- 想刷新 DSH `latest`；
+- 本地已经手工 `git pull`。
+
+同样保留 `.runtime`。
 
 ---
 
-# 16. 停止
+## 11. 停止
 
 ```bash
 ./scripts/stop.sh
 ```
 
-等价于核心意义上的：
+相当于：
 
 ```bash
 docker compose down --remove-orphans
 ```
 
-不会删除：
+不会删除持久化文件。
 
-```text
-.runtime/workspace
-.runtime/dsh-home
-.runtime/tinyauth
-```
-
----
-
-# 17. 完全删除运行数据
-
-**此操作不可恢复。**
-
-先：
+重新启动：
 
 ```bash
-./scripts/stop.sh
-```
-
-确认：
-
-```bash
-pwd
-```
-
-然后：
-
-```bash
-rm -rf .runtime
-```
-
-下次：
-
-```bash
-./scripts/deploy.sh
-```
-
-会视为首次部署。
-
----
-
-# 18. 备份
-
-最重要的是：
-
-```text
-.runtime/
-.env
-```
-
-备份运行数据：
-
-```bash
-tar -czf dsh-runtime-backup.tar.gz .runtime .env
-```
-
-如果 workspace 中项目本身都已经 Git push，那么也可以只备份：
-
-```text
-.runtime/dsh-home
-.runtime/tinyauth
-.env
-```
-
----
-
-# 19. Compose project 名称
-
-项目故意没有：
-
-```yaml
-name: deepseek-harness
-```
-
-也没有：
-
-```yaml
-container_name: deepseek-harness
-```
-
-Docker Compose 默认根据仓库目录名生成 project 名。
-
-例如：
-
-```text
-/opt/dsh-docker
-```
-
-可能生成：
-
-```text
-dsh-docker-dsh-1
-dsh-docker-tinyauth-1
-dsh-docker-gateway-1
-```
-
-如果另一个 clone：
-
-```text
-/opt/dsh-docker-test
-```
-
-则成为另一个独立 Compose project。
-
-因此不会被固定 `container_name` 卡死。
-
----
-
-# 20. 旧版本迁移
-
-旧版项目曾使用：
-
-```text
-Compose project: deepseek-harness
-container_name:
-  deepseek-harness
-  dsh-tinyauth
-  dsh-gateway
-  dsh-caddy
-```
-
-现在：
-
-```text
-scripts/cleanup-legacy.sh
-```
-
-会检查 Docker Compose label：
-
-```text
-com.docker.compose.project=deepseek-harness
-```
-
-只有确认属于旧项目才清理旧容器。
-
-不会仅根据名字盲目删除一个无关容器。
-
----
-
-# 21. Git Ignore
-
-运行时统一：
-
-```gitignore
-/.runtime/
-```
-
-本机配置：
-
-```gitignore
-.env
-.env.*
-!.env.example
-```
-
-所以以后仓库新增：
-
-```text
-LICENSE
-Taskfile.yml
-scripts/new-script.sh
-docs/xxx.md
-compose.xxx.yaml
-```
-
-都会正常被 Git 识别。
-
-不需要维护：
-
-```gitignore
-!Dockerfile
-!README.md
-!xxx
-```
-
-这种反向白名单。
-
----
-
-# 22. 安全边界
-
-## DSH 无 Docker Socket
-
-项目不会：
-
-```yaml
-- /var/run/docker.sock:/var/run/docker.sock
-```
-
-因此 DSH Agent 默认不能：
-
-```text
-控制宿主机 Docker
-创建 privileged 容器
-通过 Docker API 获得等价 host root 权限
-```
-
-DSH 能操作的是：
-
-```text
-/workspace
-/home/node/.dsh
-容器自己的开发环境
-网络
-```
-
-## 非 root DSH
-
-DSH 使用 Node 官方镜像中的非 root `node` 用户运行。
-
-## 密码
-
-Tinyauth 用户配置保存：
-
-```text
-username:bcrypt_hash
-```
-
-不保存明文密码。
-
-`.runtime/tinyauth/config.yml` 默认权限：
-
-```text
-0600
-```
-
-root 部署时所有权会调整给容器需要的数值 UID/GID。
-
-## 公网访问
-
-不要使用：
-
-```dotenv
-BIND_ADDRESS=0.0.0.0
-AUTH_URL=http://PUBLIC_IP:3081
-```
-
-然后直接在公网传输密码。
-
-正式公网部署应该：
-
-```text
-Browser
-  |
- HTTPS
-  v
-Nginx/Caddy/1Panel/Cloudflare
-  |
-  v
-127.0.0.1:${DSH_PORT}/${AUTH_PORT}
-```
-
----
-
-# 23. 故障排查
-
-## 23.1 `no configuration file provided: not found`
-
-说明你不在仓库根目录。
-
-错误：
-
-```bash
-cd /parent
-docker compose up
-```
-
-正确：
-
-```bash
-cd /parent/dsh-docker
-./scripts/deploy.sh
-```
-
----
-
-## 23.2 `无法从 Tinyauth CLI 输出中提取 bcrypt Hash`
-
-新版脚本已经不再匹配固定的：
-
-```text
-TINYAUTH_AUTH_USERS=...
+docker compose up -d
 ```
 
 或：
 
-```text
---auth.users=...
+```bash
+./scripts/deploy.sh
 ```
 
-而是直接提取：
+---
 
-```text
-$2a$10$...
-$2b$10$...
-$2y$10$...
+## 12. 使用现有 Nginx / 1Panel / OpenResty
+
+推荐 `.env`：
+
+```dotenv
+BIND_ADDRESS=127.0.0.1
+DSH_PORT=13080
 ```
 
-如果仍然出现该错误，执行：
+然后 HTTPS 反向代理：
+
+```text
+https://dsh.example.com
+        ↓
+http://127.0.0.1:13080
+        ↓
+Caddy Basic Auth
+        ↓
+DSH
+```
+
+仓库提供示例：
+
+```text
+examples/nginx.conf
+```
+
+关键点：
+
+- WebSocket/Upgrade 头应正常转发；
+- 建议关闭代理缓冲以改善流式响应；
+- 增大读写超时，避免长 Agent 任务被代理提前断开；
+- TLS 在外层反向代理终止；
+- Basic Auth 仍由 Core Gateway 统一处理；Gateway 验证后会移除浏览器的 Basic `Authorization` 头，再把请求交给 DSH。
+
+---
+
+## 13. 可选：仓库自带 Caddy HTTPS Edge
+
+如果没有其他反向代理，可启用可选 Edge。
+
+### DNS
+
+例如：
+
+```text
+dsh.example.com -> 服务器公网 IP
+```
+
+### `.env`
+
+添加：
+
+```dotenv
+DSH_DOMAIN=dsh.example.com
+ACME_EMAIL=admin@example.com
+
+EDGE_BIND_ADDRESS=0.0.0.0
+EDGE_HTTP_PORT=80
+EDGE_HTTPS_PORT=443
+EDGE_CADDY_VERSION=2.11.4
+```
+
+Core 建议保持：
+
+```dotenv
+BIND_ADDRESS=127.0.0.1
+DSH_PORT=3080
+```
+
+### 启动
+
+先保证 Core 已部署：
 
 ```bash
-docker run --rm \
-  ghcr.io/tinyauthapp/tinyauth:v5.1.3 \
-  user create --username test --password test123456
+./scripts/deploy.sh
 ```
 
-把完整输出与：
+再：
+
+```bash
+./scripts/edge-up.sh
+```
+
+访问：
+
+```text
+https://dsh.example.com
+```
+
+认证依然由 Core Gateway 负责。
+
+停止 Edge，但保留 Core：
+
+```bash
+./scripts/edge-down.sh
+```
+
+注意 Edge 默认需要宿主机 80/443 可用；如果已有 Nginx/1Panel，就不要启用此 Edge。
+
+---
+
+## 14. 健康检查与诊断
+
+### 状态
+
+```bash
+./scripts/check.sh
+```
+
+未携带认证信息访问 Gateway，预期 HTTP 状态是：
+
+```text
+401 Unauthorized
+```
+
+这反而说明认证层已经正常工作。
+
+### 综合诊断
 
 ```bash
 ./scripts/doctor.sh
 ```
 
-结果一起检查。
+会检查：
 
----
+- Docker；
+- Docker Compose v2；
+- Docker daemon；
+- `.env`；
+- 端口格式；
+- 用户配置；
+- Compose 配置；
+- Caddy Gateway Caddyfile 能否被解析。
 
-## 23.3 `Permission denied`
+### 日志
 
-查看：
-
-```bash
-ls -ln .runtime
-ls -ln .runtime/tinyauth
-```
-
-默认需要 UID/GID：
-
-```text
-1000:1000
-```
-
-root 下重新初始化：
+全部：
 
 ```bash
-./scripts/init-runtime.sh
+docker compose logs -f --tail=200
 ```
 
----
-
-## 23.4 端口被占用
-
-查看：
+DSH：
 
 ```bash
-ss -lntp | grep -E ':(3080|3081)\\b'
+docker compose logs -f --tail=200 dsh
 ```
 
-修改 `.env`：
-
-```dotenv
-DSH_PORT=13080
-AUTH_PORT=13081
-```
-
-然后：
+Gateway：
 
 ```bash
-./scripts/rebuild.sh
+docker compose logs -f --tail=200 gateway
 ```
 
----
-
-## 23.5 登录后反复跳回登录页
-
-重点检查：
-
-```dotenv
-AUTH_URL=
-TINYAUTH_SECURE_COOKIE=
-```
-
-HTTP：
-
-```dotenv
-AUTH_URL=http://...
-TINYAUTH_SECURE_COOKIE=false
-```
-
-HTTPS：
-
-```dotenv
-AUTH_URL=https://...
-TINYAUTH_SECURE_COOKIE=true
-```
-
-如果使用两个域名，建议使用同一父域：
-
-```text
-auth.example.com
-dsh.example.com
-```
-
-浏览器旧 Cookie 也可能影响测试，可清除对应站点 Cookie 后重试。
-
----
-
-## 23.6 DSH unhealthy
+### 容器状态
 
 ```bash
 docker compose ps
+```
+
+### 实际端口
+
+```bash
+ss -lntp | grep 3080
+```
+
+按实际 `DSH_PORT` 替换即可。
+
+---
+
+## 15. 常见问题
+
+### 15.1 `no configuration file provided: not found`
+
+说明你没有在仓库目录运行 Compose。
+
+正确：
+
+```bash
+cd /path/to/dsh-docker
+docker compose ps
+```
+
+或者显式：
+
+```bash
+docker compose -f /path/to/dsh-docker/compose.yaml ps
+```
+
+### 15.2 Gateway 返回 401
+
+如果你直接 curl：
+
+```bash
+curl -i http://127.0.0.1:3080
+```
+
+得到：
+
+```text
+HTTP/1.1 401 Unauthorized
+```
+
+这是正常行为，表示 Basic Auth 正在拦截未登录请求。
+
+浏览器访问会弹出用户名/密码输入框。
+
+### 15.3 忘记密码
+
+直接重置：
+
+```bash
+./scripts/create-user.sh
+```
+
+输入相同用户名和新密码。
+
+### 15.4 Gateway 启动失败
+
+先：
+
+```bash
+./scripts/doctor.sh
+```
+
+再：
+
+```bash
+docker compose logs --tail=200 gateway
+```
+
+检查：
+
+```bash
+cat .runtime/auth/users.caddy
+```
+
+应至少有一行：
+
+```text
+username $2a$...
+```
+
+### 15.5 DSH unhealthy
+
+```bash
 docker compose logs --tail=200 dsh
 ```
 
-进入：
+进入容器：
 
 ```bash
 docker compose exec dsh bash
@@ -1607,179 +976,249 @@ docker compose exec dsh bash
 
 ```bash
 dsh --version
-ps aux
-curl -v http://127.0.0.1:3080/
+curl -i http://127.0.0.1:3080/
 ```
 
----
+### 15.6 端口冲突
 
-## 23.7 构建时网络失败
-
-如果：
-
-```text
-go.dev
-npm registry
-crates.io
-GitHub
+```bash
+ss -lntp | grep ':3080'
 ```
 
-访问受限，在 `.env` 配置：
+然后修改：
 
 ```dotenv
-HTTP_PROXY=http://...
-HTTPS_PROXY=http://...
+DSH_PORT=13080
 ```
 
-再：
+重新：
 
 ```bash
-./scripts/rebuild.sh
+docker compose up -d --force-recreate gateway
 ```
 
-注意：Docker **build 阶段**的网络代理还取决于 Docker daemon/buildkit 自己的代理配置；DSH 容器环境变量主要影响运行时。
+### 15.7 Git 更新失败
+
+`update.sh` 只允许 fast-forward，并拒绝覆盖 tracked 本地修改。
+
+查看：
+
+```bash
+git status
+```
+
+处理本地修改后再：
+
+```bash
+./scripts/update.sh
+```
 
 ---
 
-# 24. 常用命令速查
+## 16. 数据备份
+
+核心数据都在：
+
+```text
+.runtime/
+```
+
+最重要：
+
+```text
+.runtime/workspace
+.runtime/dsh-home
+.runtime/auth/users.caddy
+```
+
+简单备份：
 
 ```bash
-# 首次/常规部署
+tar -czf dsh-runtime-backup.tar.gz .runtime .env
+```
+
+如果项目代码本身已经使用 Git 管理，仍建议单独备份 `.runtime/dsh-home` 和认证配置。
+
+---
+
+## 17. 完全删除
+
+停止：
+
+```bash
+docker compose down --remove-orphans --rmi local
+```
+
+如果确认所有项目、会话和认证数据都不要了：
+
+```bash
+rm -rf .runtime
+rm -f .env
+```
+
+这是不可逆操作。
+
+---
+
+## 18. 安全边界
+
+当前设计刻意**不挂载**：
+
+```text
+/var/run/docker.sock
+/
+/root
+/etc
+宿主机 ~/.ssh
+```
+
+因此 DSH Agent 默认：
+
+```text
+可以：
+- 操作 /workspace
+- 执行 Node / Go / Rust / Python
+- git clone / build / test
+- 访问允许的网络
+
+不能直接：
+- 控制宿主机 Docker daemon
+- 读取宿主机根文件系统
+- 创建 privileged 容器
+```
+
+不要为了方便加入：
+
+```yaml
+- /var/run/docker.sock:/var/run/docker.sock
+```
+
+这会显著扩大容器对宿主机的控制权限。
+
+另外：
+
+- Basic Auth 不是 TLS；公网必须使用 HTTPS；
+- `.runtime/auth/users.caddy` 虽然只有 Hash，也不应公开；
+- `.env` 可能包含代理或未来加入的敏感配置，不应提交 Git；
+- `DSH_PERMISSION_MODE=workspace-write` 意味着 Agent 可以修改整个 `/workspace`，重要代码应通过 Git commit/backup 管理。
+
+---
+
+## 19. 日常命令速查
+
+首次部署：
+
+```bash
 ./scripts/deploy.sh
+```
 
-# 环境诊断
-./scripts/doctor.sh
+创建/改密码：
 
-# 状态 + 日志摘要
-./scripts/check.sh
-
-# 创建/修改用户
+```bash
 ./scripts/create-user.sh
+```
 
-# 查看用户
+用户列表：
+
+```bash
 ./scripts/list-users.sh
+```
 
-# 删除用户
-./scripts/remove-user.sh xiaolin
+删除用户：
 
-# 当前代码重新构建
-./scripts/rebuild.sh
+```bash
+./scripts/remove-user.sh
+```
 
-# git pull + 删除旧运行实例 + 重建
-./scripts/update.sh
+状态：
 
-# 查看完整日志
-docker compose logs -f --tail=200
+```bash
+./scripts/check.sh
+```
 
-# 进入 DSH
+诊断：
+
+```bash
+./scripts/doctor.sh
+```
+
+进入 DSH：
+
+```bash
 docker compose exec dsh bash
+```
 
-# 停止
+更新代码 + 重建：
+
+```bash
+./scripts/update.sh
+```
+
+只重建：
+
+```bash
+./scripts/rebuild.sh
+```
+
+停止：
+
+```bash
 ./scripts/stop.sh
+```
 
-# 启用可选 HTTPS Edge
+启用 HTTPS Edge：
+
+```bash
 ./scripts/edge-up.sh
+```
 
-# 停止可选 Edge
+停止 HTTPS Edge：
+
+```bash
 ./scripts/edge-down.sh
 ```
 
-Makefile 等价入口：
-
-```bash
-make doctor
-make deploy
-make user
-make users
-make rebuild
-make update
-make check
-make logs
-make shell
-make stop
-make edge-up
-```
-
 ---
 
-# 25. 更新策略建议
+## 20. 设计原则
 
-生产/长期运行建议固定：
+这个仓库的核心约束是：
 
-```dotenv
-TINYAUTH_VERSION=v5.1.3
-GATEWAY_CADDY_VERSION=2.11.4
-NODE_VERSION=24.18.0
-GO_VERSION=1.26.5
+```text
+Repository = Deployment Unit
 ```
 
-DSH 如果已经验证稳定，也建议从：
+也就是：
 
-```dotenv
-DSH_VERSION=latest
-```
-
-切换成明确版本。
-
-然后仓库升级统一：
-
-```bash
+```text
+git clone
+   ↓
+./scripts/deploy.sh
+   ↓
+运行
+   ↓
 ./scripts/update.sh
+   ↓
+git pull
+   ↓
+删除旧容器 / 旧本地 DSH 镜像
+   ↓
+构建新镜像
+   ↓
+启动新容器
+   ↓
+继续使用原 .runtime
 ```
 
-而不是手工：
-
-```bash
-docker rm ...
-docker rmi ...
-docker build ...
-```
-
-这样部署生命周期保持一致。
+部署代码是可更新、可替换的；运行数据是持久化、独立保留的。
 
 ---
 
-# 26. 设计原则
+## 21. 上游参考
 
-这个仓库最终遵循以下边界：
-
-```text
-Git repository
-      |
-      +-- declarative deployment code
-      |     Dockerfile
-      |     compose.yaml
-      |     scripts/
-      |
-      +-- local configuration
-      |     .env
-      |
-      +-- local persistent state
-            .runtime/
-```
-
-部署代码可以随 Git 更新。
-
-本机配置和运行数据不参与 Git pull，也不会在更新过程中被删除。
-
-因此生命周期就是：
-
-```text
-clone once
-   |
-   v
-deploy
-   |
-   v
-use
-   |
-   v
-update.sh
-   |
-   +--> pull repository
-   +--> replace old containers/image
-   +--> reuse persistent runtime
-   |
-   v
-continue
-```
+- DeepSeek Harness：`@deepseek-ai/dsh`
+- Caddy Basic Auth 文档：`https://caddyserver.com/docs/caddyfile/directives/basic_auth`
+- Caddy CLI / `hash-password`：`https://caddyserver.com/docs/command-line`
+- Node.js：`https://nodejs.org/`
+- Go：`https://go.dev/`
+- Rust：`https://www.rust-lang.org/`

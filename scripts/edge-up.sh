@@ -5,33 +5,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib.sh"
 cd "${ROOT_DIR}"
 require_docker
-[[ -f .env ]] || cp .env.example .env
+[[ -f .env ]] || { echo "缺少 .env，请先执行 ./scripts/deploy.sh。" >&2; exit 1; }
 load_env "${ROOT_DIR}"
 
-: "${DSH_DOMAIN:?启用 HTTPS edge 时必须设置 DSH_DOMAIN}"
-: "${AUTH_DOMAIN:?启用 HTTPS edge 时必须设置 AUTH_DOMAIN}"
-: "${ACME_EMAIL:?启用 HTTPS edge 时必须设置 ACME_EMAIL}"
-[[ "${TINYAUTH_SECURE_COOKIE:-false}" == "true" ]] || {
-    echo "TINYAUTH_SECURE_COOKIE 必须为 true。" >&2
-    exit 1
-}
-[[ "${AUTH_URL:-}" == "https://${AUTH_DOMAIN}" ]] || {
-    echo "AUTH_URL 应设置为 https://${AUTH_DOMAIN}" >&2
-    exit 1
-}
+: "${DSH_DOMAIN:?请在 .env 设置 DSH_DOMAIN，例如 dsh.example.com}"
+: "${ACME_EMAIL:?请在 .env 设置 ACME_EMAIL}"
+validate_port EDGE_HTTP_PORT "${EDGE_HTTP_PORT:-80}"
+validate_port EDGE_HTTPS_PORT "${EDGE_HTTPS_PORT:-443}"
 
-# Tinyauth shares authentication cookies across sibling subdomains. Warn rather
-# than hard-fail so advanced users can intentionally use another arrangement.
-auth_parent="${AUTH_DOMAIN#*.}"
-if [[ "${DSH_DOMAIN}" != *."${auth_parent}" ]]; then
-    echo "警告：DSH_DOMAIN 与 AUTH_DOMAIN 看起来不是同一父域。跨子域认证 Cookie 可能无法正常工作。" >&2
-fi
+"${ROOT_DIR}/scripts/init-runtime.sh" >/dev/null
 
-"${ROOT_DIR}/scripts/init-runtime.sh"
-docker compose -f compose.yaml -f compose.edge.caddy.yaml --profile edge config >/dev/null
-docker compose -f compose.yaml -f compose.edge.caddy.yaml --profile edge pull edge
-docker compose -f compose.yaml -f compose.edge.caddy.yaml --profile edge up -d edge
+docker compose -f compose.yaml -f compose.edge.caddy.yaml config >/dev/null
+docker compose -f compose.yaml -f compose.edge.caddy.yaml pull gateway edge
+docker compose -f compose.yaml -f compose.edge.caddy.yaml up -d --remove-orphans
 
-echo "HTTPS edge 已启动："
-echo "  DSH:  https://${DSH_DOMAIN}"
-echo "  Auth: https://${AUTH_DOMAIN}"
+echo "HTTPS Edge 已启动：https://${DSH_DOMAIN}"

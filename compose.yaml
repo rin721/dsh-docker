@@ -20,7 +20,7 @@ services:
       DSH_EXTRA_TRUSTED_HOSTS: "${DSH_EXTRA_TRUSTED_HOSTS:-}"
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
-      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,dsh,tinyauth,gateway}"
+      NO_PROXY: "${NO_PROXY:-localhost,127.0.0.1,dsh,gateway}"
     volumes:
       - type: bind
         source: "${RUNTIME_DIR:-./.runtime}/workspace"
@@ -42,55 +42,22 @@ services:
       retries: 10
       start_period: 30s
 
-  tinyauth:
-    image: "ghcr.io/tinyauthapp/tinyauth:${TINYAUTH_VERSION:-v5.1.3}"
-    restart: unless-stopped
-    environment:
-      TINYAUTH_CONFIGFILE: /config/tinyauth.yml
-      TINYAUTH_APPURL: "${AUTH_URL:-http://127.0.0.1:3081}"
-      TINYAUTH_LABELPROVIDER: none
-      TINYAUTH_DATABASE_DRIVER: sqlite
-      TINYAUTH_DATABASE_PATH: /data/tinyauth.db
-      TINYAUTH_AUTH_SECURECOOKIE: "${TINYAUTH_SECURE_COOKIE:-false}"
-      TINYAUTH_AUTH_SESSIONEXPIRY: "${TINYAUTH_SESSION_EXPIRY:-86400}"
-      TINYAUTH_AUTH_SESSIONMAXLIFETIME: "${TINYAUTH_SESSION_MAX_LIFETIME:-0}"
-      TINYAUTH_AUTH_LOGINTIMEOUT: "${TINYAUTH_LOGIN_TIMEOUT:-300}"
-      TINYAUTH_AUTH_LOGINMAXRETRIES: "${TINYAUTH_LOGIN_MAX_RETRIES:-3}"
-      TINYAUTH_AUTH_TRUSTEDPROXIES: "${TINYAUTH_TRUSTED_PROXIES:-}"
-      TINYAUTH_ANALYTICS_ENABLED: "false"
-      TINYAUTH_UI_TITLE: "${AUTH_UI_TITLE:-DeepSeek Harness}"
-    volumes:
-      - type: bind
-        source: "${RUNTIME_DIR:-./.runtime}/tinyauth/config.yml"
-        target: /config/tinyauth.yml
-        read_only: true
-      - type: bind
-        source: "${RUNTIME_DIR:-./.runtime}/tinyauth/data"
-        target: /data
-    expose:
-      - "3000"
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "tinyauth", "healthcheck"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-
   gateway:
     image: "caddy:${GATEWAY_CADDY_VERSION:-2.11.4}"
     restart: unless-stopped
     depends_on:
       dsh:
         condition: service_healthy
-      tinyauth:
-        condition: service_healthy
+    environment:
+      AUTH_REALM: "${AUTH_REALM:-DeepSeek Harness}"
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${DSH_PORT:-3080}:3080"
-      - "${BIND_ADDRESS:-127.0.0.1}:${AUTH_PORT:-3081}:3081"
     volumes:
       - ./Caddyfile.gateway:/etc/caddy/Caddyfile:ro
+      - type: bind
+        source: "${RUNTIME_DIR:-./.runtime}/auth/users.caddy"
+        target: /etc/caddy/auth/users.caddy
+        read_only: true
     networks:
       - backend
 

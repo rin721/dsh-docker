@@ -4,48 +4,36 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib.sh
 source "${ROOT_DIR}/scripts/lib.sh"
 cd "${ROOT_DIR}"
+require_docker
 [[ -f .env ]] && load_env "${ROOT_DIR}"
-"${ROOT_DIR}/scripts/init-runtime.sh" >/dev/null
-RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
-CONFIG_FILE="${RUNTIME_ABS}/tinyauth/config.yml"
+FILE="$(users_file "${ROOT_DIR}")"
+[[ -s "${FILE}" ]] || { echo "暂无登录用户。"; exit 0; }
 
-username="${1:-}"
-if [[ -z "${username}" ]]; then
-    read -r -p "要删除的用户名: " username
+read -r -p "要删除的用户名: " username
+[[ "${username}" =~ ^[A-Za-z0-9._@-]+$ ]] || { echo "用户名格式无效。" >&2; exit 1; }
+
+tmp="$(mktemp)"
+trap 'rm -f "${tmp}"' EXIT
+awk -v user="${username}" '$1 != user { print }' "${FILE}" > "${tmp}"
+
+if cmp -s "${FILE}" "${tmp}"; then
+    echo "用户 '${username}' 不存在。"
+    exit 1
 fi
-[[ -n "${username}" ]] || { echo "用户名不能为空。" >&2; exit 1; }
 
-declare -a records=()
-found=false
-while IFS= read -r line; do
-    trimmed="${line#"${line%%[![:space:]]*}"}"
-    [[ "${trimmed}" == -* ]] || continue
-    item="${trimmed#-}"
-    item="${item#"${item%%[![:space:]]*}"}"
-    item="${item#\"}"; item="${item%\"}"
-    item="${item#\'}"; item="${item%\'}"
-    [[ "${item}" == *:'$2'* ]] || continue
-    if [[ "${item%%:*}" == "${username}" ]]; then
-        found=true
+mv "${tmp}" "${FILE}"
+trap - EXIT
+chmod 0644 "${FILE}"
+echo "已删除用户 '${username}'。"
+
+if [[ ! -s "${FILE}" ]]; then
+    echo "警告：当前已经没有登录用户，Gateway 下一次加载配置会失败。请立即创建至少一个用户。" >&2
+fi
+
+if docker compose ps --status running gateway 2>/dev/null | grep -q gateway; then
+    if [[ -s "${FILE}" ]]; then
+        docker compose up -d --force-recreate gateway
     else
-        records+=("${item}")
+        docker compose stop gateway
     fi
-done < "${CONFIG_FILE}"
-
-[[ "${found}" == true ]] || { echo "用户 '${username}' 不存在。" >&2; exit 1; }
-
-umask 077
-{
-    echo "auth:"
-    echo "  users:"
-    for item in "${records[@]}"; do
-        printf '    - "%s"\n' "${item}"
-    done
-} > "${CONFIG_FILE}"
-if [[ "${EUID}" -eq 0 ]]; then
-    chown "${RUNTIME_UID:-1000}:${RUNTIME_GID:-1000}" "${CONFIG_FILE}"
 fi
-chmod 0600 "${CONFIG_FILE}"
-
-echo "用户 '${username}' 已删除。"
-echo "若服务正在运行，执行 docker compose restart tinyauth gateway 使配置立即生效。"
