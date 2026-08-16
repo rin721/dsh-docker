@@ -1,4 +1,4 @@
-.PHONY: deploy update rebuild check doctor self-test stop user users remove-user build shell
+.PHONY: deploy update rebuild check doctor self-test check-image stop user users remove-user build shell
 
 deploy:
 	./scripts/deploy.sh
@@ -17,6 +17,9 @@ doctor:
 
 self-test:
 	./scripts/self-test.sh
+
+check-image:
+	./scripts/check-image.sh
 
 stop:
 	./scripts/stop.sh

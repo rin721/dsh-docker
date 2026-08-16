@@ -40,4 +40,11 @@ else
     echo "[SKIP] Docker Compose runtime validation"
 fi
 
+
+if grep -Eq -- '--mount=type=cache,target=/home/node/\.rustup/(tmp|toolchains)' "${ROOT_DIR}/Dockerfile"; then
+    bad "Dockerfile: rustup tmp/toolchains must not be cache mounts"
+else
+    ok "Dockerfile: rustup installation paths are on one filesystem"
+fi
+
 (( failed == 0 ))

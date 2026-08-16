@@ -118,16 +118,25 @@ COPY --chmod=0644 dsh-web-proxy.mjs dsh-http-compat.js /usr/local/lib/
 USER node
 WORKDIR /workspace
 
-RUN --mount=type=cache,target=/home/node/.rustup/downloads,uid=1000,gid=1000 \
-    --mount=type=cache,target=/home/node/.rustup/tmp,uid=1000,gid=1000 \
-    set -eux; \
+# Do not cache-mount RUSTUP_HOME/tmp or RUSTUP_HOME/toolchains.
+# rustup installs by renaming files from tmp into toolchains; separate
+# filesystems can fail with EXDEV ("Invalid cross-device link").
+# The completed RUN layer is already cached normally by BuildKit.
+RUN set -eux; \
     curl --proto '=https' --tlsv1.2 --fail --show-error --silent \
         https://sh.rustup.rs -o /tmp/rustup-init.sh; \
-    sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"; \
+    sh /tmp/rustup-init.sh \
+        -y \
+        --no-modify-path \
+        --profile minimal \
+        --default-toolchain "${RUST_TOOLCHAIN}"; \
     rm -f /tmp/rustup-init.sh; \
     rustup component add rustfmt clippy rust-analyzer; \
     rustc --version; \
-    cargo --version
+    cargo --version; \
+    rustfmt --version; \
+    cargo clippy --version; \
+    rust-analyzer --version
 
 RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
     set -eux; \

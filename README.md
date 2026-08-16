@@ -234,6 +234,12 @@ DSH_IMAGE_MODE=build
 
 ## 7. GHCR
 
+部署前可以检查预构建镜像是否已经可匿名拉取：
+
+```bash
+./scripts/check-image.sh
+```
+
 仓库包含：
 
 ```text
@@ -253,9 +259,17 @@ linux/arm64
 ghcr.io/rin721/dsh-docker:latest
 ```
 
-正式给别人使用时，维护者应确保这个 GHCR Package 是 Public。
+正式给别人使用前，维护者应先让 GitHub Actions 成功发布镜像，并确保这个 GHCR Package 是 **Public**。
 
-否则普通用户匿名 `docker pull` 会失败并进入本地 Build fallback。
+否则普通用户匿名 `docker pull` 会失败；`DSH_IMAGE_MODE=auto` 会进入本地 Build fallback，因此第一次部署仍然会比较慢。
+
+如果你不希望正式用户现场编译，发布镜像后建议把默认配置改为：
+
+```dotenv
+DSH_IMAGE_MODE=pull
+```
+
+这样镜像不可用时会立即失败，而不是现场构建。
 
 ---
 
@@ -268,8 +282,9 @@ apt
 npm
 Go module
 Go build cache
-Rustup downloads
 ```
+
+Rustup **不对 `.rustup/tmp` / `.rustup/toolchains` 使用 cache mount**。Rustup 安装过程中会把临时文件移动到 toolchain 目录，把两者放到不同挂载文件系统会触发 Linux `EXDEV / Invalid cross-device link`。Rust 工具链本身依靠正常的 Docker RUN layer cache 复用。
 
 因此：
 
@@ -287,6 +302,38 @@ docker system prune -a
 否则会主动删除这些缓存。
 
 ---
+
+
+## 8.1 ARM64 / Rust fallback 构建
+
+项目支持 ARM64。Rustup 会根据容器架构自动选择类似：
+
+```text
+aarch64-unknown-linux-gnu
+```
+
+如果 GHCR 预构建镜像尚未发布，`DSH_IMAGE_MODE=auto` 会进入本地 fallback build。
+
+本地 Rust 安装步骤不再把：
+
+```text
+/home/node/.rustup/tmp
+/home/node/.rustup/toolchains
+```
+
+做成 BuildKit cache mount，避免：
+
+```text
+Invalid cross-device link (os error 18)
+```
+
+如果你刚刚在旧版 Dockerfile 上遇到过这个错误，更新仓库后直接重新：
+
+```bash
+./scripts/deploy.sh
+```
+
+即可。前面的 apt 等成功层仍可继续命中 Docker 普通 layer cache，不需要执行 `docker system prune`。
 
 ## 9. Workspace
 
