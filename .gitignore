@@ -1,0 +1,7 @@
+*.*
+
+!compose.yaml
+!Dockerfile
+!README.md
+!start-dsh-web.sh
+!.gitignore
