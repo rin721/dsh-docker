@@ -19,7 +19,8 @@ if [[ -f .env ]]; then
     ok ".env exists"
     load_env "${ROOT_DIR}"
 else
-    warn ".env 不存在；deploy.sh 会从 .env.example 自动创建"
+    warn ".env 不存在；deploy.sh 会自动创建"
+    load_env "${ROOT_DIR}" || true
 fi
 
 if validate_access_mode "${ACCESS_MODE:-local}" >/dev/null 2>&1; then
@@ -28,40 +29,35 @@ else
     bad "invalid ACCESS_MODE"
 fi
 
-if validate_mode_config >/dev/null 2>&1; then
-    ok "access mode config"
+if validate_image_mode "${DSH_IMAGE_MODE:-auto}" >/dev/null 2>&1; then
+    ok "DSH_IMAGE_MODE=${DSH_IMAGE_MODE:-auto}"
 else
-    bad "access mode config invalid"
+    bad "invalid DSH_IMAGE_MODE"
 fi
 
-RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
-echo "Runtime: ${RUNTIME_ABS}"
+if validate_mode_config >/dev/null 2>&1; then
+    ok "access config"
+else
+    bad "access config invalid"
+fi
+
+if preflight_access_ports "${ROOT_DIR}" >/dev/null 2>&1; then
+    ok "host ports available / owned by this project"
+else
+    bad "host port conflict"
+fi
 
 FILE="$(users_file "${ROOT_DIR}")"
-if has_auth_user "${FILE}"; then ok "至少存在一个 Basic Auth 用户"; else warn "尚未创建认证用户"; fi
+if has_auth_user "${FILE}"; then ok "Basic Auth user exists"; else warn "尚未创建认证用户"; fi
 
 if active_compose config >/dev/null 2>&1; then ok "compose config"; else bad "compose config invalid"; fi
 
-if [[ -s "${FILE}" ]] && docker info >/dev/null 2>&1; then
-    if docker image inspect "$(gateway_image)" >/dev/null 2>&1; then
-        if validate_gateway_config_or_die >/dev/null 2>&1; then
-            ok "Caddy gateway config"
-        else
-            bad "Caddy gateway config invalid"
-        fi
-    else
-        warn "Gateway 镜像尚未拉取；deploy.sh 会自动拉取"
-    fi
+if [[ "${DSH_IMAGE_MODE:-auto}" != "build" ]]; then
+    echo "DSH image    : ${DSH_IMAGE:-ghcr.io/rin721/dsh-docker:latest}"
 fi
 
 if [[ "${ACCESS_MODE:-local}" == "domain-http" ]]; then
-    warn "domain-http 使用明文 HTTP；Basic Auth 只适用于可信网络/受控环境"
-fi
-
-if [[ "${DSH_HTTP_COMPAT_SHIM:-true}" == "true" ]]; then
-    ok "remote HTTP crypto.randomUUID compatibility shim enabled"
-else
-    warn "remote HTTP compatibility shim disabled"
+    warn "domain-http 是明文 HTTP；Basic Auth 只适合可信网络/受控环境"
 fi
 
 (( errors == 0 )) || exit 1

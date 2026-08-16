@@ -1,15 +1,6 @@
 services:
   dsh:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        NODE_VERSION: "${NODE_VERSION:-24.18.0}"
-        GO_VERSION: "${GO_VERSION:-1.26.5}"
-        RUST_TOOLCHAIN: "${RUST_TOOLCHAIN:-stable}"
-        PNPM_VERSION: "${PNPM_VERSION:-11.7.0}"
-        DSH_VERSION: "${DSH_VERSION:-latest}"
-        INSTALL_GO_DEV_TOOLS: "${INSTALL_GO_DEV_TOOLS:-true}"
+    image: "${DSH_IMAGE:-ghcr.io/rin721/dsh-docker:latest}"
     restart: unless-stopped
     working_dir: /workspace
     environment:

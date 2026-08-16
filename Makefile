@@ -1,4 +1,4 @@
-.PHONY: deploy local domain-http domain-https update rebuild check doctor self-test stop user users remove-user set-mode edge-up edge-down shell
+.PHONY: deploy local domain-http domain-https update rebuild check doctor self-test stop user users remove-user build shell
 
 deploy:
 	./scripts/deploy.sh
@@ -7,9 +7,9 @@ local:
 	./scripts/deploy.sh local
 
 domain-http:
-	@echo "用法: make domain-http DOMAIN=dsh.example.com"
+	@echo "用法: make domain-http DOMAIN=dsh.example.com [PORT=3080]"
 	@test -n "$(DOMAIN)"
-	./scripts/deploy.sh domain-http "$(DOMAIN)"
+	./scripts/deploy.sh domain-http "$(DOMAIN)" "$(if $(PORT),$(PORT),3080)"
 
 domain-https:
 	@echo "用法: make domain-https DOMAIN=dsh.example.com EMAIL=admin@example.com"
@@ -44,14 +44,8 @@ users:
 remove-user:
 	./scripts/remove-user.sh
 
-set-mode:
-	@echo "Use ./scripts/set-mode.sh local|domain-http|domain-https ..."
-
-edge-up:
-	./scripts/edge-up.sh
-
-edge-down:
-	./scripts/edge-down.sh
+build:
+	DSH_IMAGE_MODE=build ./scripts/rebuild.sh
 
 shell:
 	docker compose exec dsh bash

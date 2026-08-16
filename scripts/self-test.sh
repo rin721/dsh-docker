@@ -23,27 +23,29 @@ else
 fi
 
 if command -v node >/dev/null 2>&1; then
-    if node --check "${ROOT_DIR}/dsh-web-proxy.mjs" >/dev/null; then
-        ok "node syntax: dsh-web-proxy.mjs"
-    else
-        bad "node syntax: dsh-web-proxy.mjs"
-    fi
+    node --check "${ROOT_DIR}/dsh-web-proxy.mjs" >/dev/null \
+        && ok "node: dsh-web-proxy.mjs" \
+        || bad "node: dsh-web-proxy.mjs"
 
-    if node --check "${ROOT_DIR}/dsh-http-compat.js" >/dev/null; then
-        ok "node syntax: dsh-http-compat.js"
-    else
-        bad "node syntax: dsh-http-compat.js"
-    fi
+    node --check "${ROOT_DIR}/dsh-http-compat.js" >/dev/null \
+        && ok "node: dsh-http-compat.js" \
+        || bad "node: dsh-http-compat.js"
 else
     echo "[SKIP] node syntax checks"
 fi
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    if docker compose config >/dev/null; then
-        ok "compose.yaml"
-    else
-        bad "compose.yaml"
-    fi
+    docker compose config >/dev/null \
+        && ok "compose.yaml" \
+        || bad "compose.yaml"
+
+    docker compose -f compose.yaml -f compose.build.yaml config >/dev/null \
+        && ok "compose.build.yaml" \
+        || bad "compose.build.yaml"
+
+    docker compose -f compose.yaml -f compose.edge.caddy.yaml config >/dev/null \
+        && ok "compose.edge.caddy.yaml" \
+        || bad "compose.edge.caddy.yaml"
 else
     echo "[SKIP] Docker Compose runtime validation"
 fi

@@ -34,11 +34,16 @@ ENV LANG=C.UTF-8 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH=/usr/local/go/bin:/home/node/go/bin:/home/node/.cargo/bin:/home/node/.local/bin:${PATH}
 
-# Go toolchain is copied from the official Go image so the build stays
-# multi-architecture without maintaining per-architecture download hashes.
 COPY --from=go-toolchain /usr/local/go /usr/local/go
 
-RUN set -eux; \
+# BuildKit apt caches survive local rebuilds even when this layer must run again.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; \
+    printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' \
+      > /etc/apt/apt.conf.d/keep-cache
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         bash \
@@ -49,29 +54,21 @@ RUN set -eux; \
         git \
         git-lfs \
         openssh-client \
-        gnupg \
-        dirmngr \
         build-essential \
         make \
         cmake \
         ninja-build \
         pkg-config \
-        autoconf \
-        automake \
-        libtool \
         clang \
         clangd \
-        lldb \
         gdb \
         strace \
-        libclang-dev \
         libssl-dev \
         openssl \
         zlib1g-dev \
         libsqlite3-dev \
         sqlite3 \
         protobuf-compiler \
-        musl-tools \
         python3 \
         python3-pip \
         python3-venv \
@@ -93,17 +90,12 @@ RUN set -eux; \
         xz-utils \
         zstd \
         shellcheck \
-        dnsutils \
         iproute2 \
-        iputils-ping \
-        netcat-openbsd \
         procps \
-        psmisc \
         lsof \
         tini; \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd; \
     git lfs install --system; \
-    rm -rf /var/lib/apt/lists/*; \
     go version
 
 RUN set -eux; \
@@ -115,7 +107,8 @@ RUN set -eux; \
         /home/node/go/bin \
         /home/node/go/pkg/mod \
         /home/node/.cargo \
-        /home/node/.rustup; \
+        /home/node/.rustup \
+        /home/node/.npm; \
     chown -R node:node /workspace /home/node; \
     git config --system --add safe.directory /workspace
 
@@ -125,8 +118,9 @@ COPY --chmod=0644 dsh-web-proxy.mjs dsh-http-compat.js /usr/local/lib/
 USER node
 WORKDIR /workspace
 
-# Rust toolchain.
-RUN set -eux; \
+RUN --mount=type=cache,target=/home/node/.rustup/downloads,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/node/.rustup/tmp,uid=1000,gid=1000 \
+    set -eux; \
     curl --proto '=https' --tlsv1.2 --fail --show-error --silent \
         https://sh.rustup.rs -o /tmp/rustup-init.sh; \
     sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"; \
@@ -135,29 +129,30 @@ RUN set -eux; \
     rustc --version; \
     cargo --version
 
-# Node tooling + DeepSeek Harness.
-RUN set -eux; \
+RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
+    set -eux; \
     npm install --global --no-audit --no-fund \
         "pnpm@${PNPM_VERSION}" \
         typescript@latest \
         tsx@latest \
         "@deepseek-ai/dsh@${DSH_VERSION}"; \
-    npm cache clean --force; \
     node --version; \
     npm --version; \
     pnpm --version; \
     dsh --version
 
-# Common Go developer tooling.
-RUN set -eux; \
+RUN --mount=type=cache,target=/home/node/go/pkg/mod,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/node/.cache/go-build,uid=1000,gid=1000 \
+    set -eux; \
     if [[ "${INSTALL_GO_DEV_TOOLS}" == "true" ]]; then \
         go install golang.org/x/tools/gopls@latest; \
         go install golang.org/x/tools/cmd/goimports@latest; \
         go install github.com/go-delve/delve/cmd/dlv@latest; \
         go install honnef.co/go/tools/cmd/staticcheck@latest; \
         go install github.com/go-task/task/v3/cmd/task@latest; \
-        go clean -cache -modcache; \
     fi
+
+LABEL org.opencontainers.image.source="https://github.com/rin721/dsh-docker"
 
 EXPOSE 3080
 
