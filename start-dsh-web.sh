@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# DSH Web 默认只应监听回环地址。
-# socat 仅把它桥接到容器网络的 3080 端口；Compose 不向宿主机发布 3080，
-# 因而公网入口只能经过 Caddy + Tinyauth。
+# DeepSeek Harness intentionally binds its web server to loopback.
+# Keep DSH on 127.0.0.1 and expose it only inside this container through
+# socat. The outer authentication gateway is responsible for host access.
 readonly internal_host="${DSH_INTERNAL_HOST:-127.0.0.1}"
 readonly internal_port="${DSH_INTERNAL_PORT:-3079}"
 readonly proxy_port="${DSH_PROXY_PORT:-3080}"
-readonly browser_port="${DSH_BROWSER_PORT:-3080}"
 
 dsh_pid=''
 proxy_pid=''
@@ -33,14 +32,18 @@ dsh_args=(
     web
     --host "${internal_host}"
     --port "${internal_port}"
-    --trusted-host "localhost:${browser_port}"
-    --trusted-host "127.0.0.1:${browser_port}"
+    --trusted-host "localhost:${proxy_port}"
+    --trusted-host "127.0.0.1:${proxy_port}"
+    --trusted-host "localhost:${internal_port}"
+    --trusted-host "127.0.0.1:${internal_port}"
 )
 
-# 逗号分隔，例如：DSH_EXTRA_TRUSTED_HOSTS='dsh.example.com,dsh.example.com:443'
+# Optional extra trusted hosts for unusual deployments.
+# Comma-separated, for example: example.com,example.com:443
 if [[ -n "${DSH_EXTRA_TRUSTED_HOSTS:-}" ]]; then
     IFS=',' read -r -a extra_hosts <<< "${DSH_EXTRA_TRUSTED_HOSTS}"
     for trusted_host in "${extra_hosts[@]}"; do
+        trusted_host="${trusted_host//[[:space:]]/}"
         [[ -n "${trusted_host}" ]] && dsh_args+=(--trusted-host "${trusted_host}")
     done
 fi

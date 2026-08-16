@@ -1,5 +1,6 @@
 {
-    email {$ACME_EMAIL}
+    auto_https off
+    admin off
 }
 
 (common_security) {
@@ -8,18 +9,19 @@
         X-Content-Type-Options "nosniff"
         Referrer-Policy "same-origin"
         Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        Strict-Transport-Security "max-age=31536000"
+        X-Frame-Options "SAMEORIGIN"
     }
 }
 
-# 登录页面本身必须公开，否则会产生认证循环。
-{$AUTH_DOMAIN} {
+# Public login endpoint. No authentication is applied here, otherwise a
+# redirect loop would be created.
+:3081 {
     import common_security
     reverse_proxy tinyauth:3000
 }
 
-# DeepSeek Harness：所有请求先经过 Tinyauth 的 Caddy Forward Auth 端点。
-{$DSH_DOMAIN} {
+# Protected DeepSeek Harness endpoint.
+:3080 {
     import common_security
 
     forward_auth tinyauth:3000 {
@@ -28,7 +30,9 @@
     }
 
     reverse_proxy dsh:3080 {
-        # Agent/Web UI 可能使用流式响应；禁用代理侧额外缓冲等待。
+        # DSH validates Host values. The gateway keeps the public host in
+        # X-Forwarded-Host while presenting a stable trusted Host to DSH.
+        header_up Host 127.0.0.1:3080
         flush_interval -1
     }
 }

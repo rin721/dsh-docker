@@ -1,7 +1,9 @@
 .git
 .gitignore
+.runtime
 .env
-auth/
-scripts/
-README.md
+*.log
 *.zip
+*.tar
+*.tar.gz
+README.md

@@ -1,0 +1,25 @@
+{
+    email {$ACME_EMAIL}
+}
+
+(edge_security) {
+    header {
+        -Server
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "same-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Strict-Transport-Security "max-age=31536000"
+    }
+}
+
+{$AUTH_DOMAIN} {
+    import edge_security
+    reverse_proxy gateway:3081
+}
+
+{$DSH_DOMAIN} {
+    import edge_security
+    reverse_proxy gateway:3080 {
+        flush_interval -1
+    }
+}
