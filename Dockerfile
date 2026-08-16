@@ -112,9 +112,6 @@ RUN set -eux; \
     chown -R node:node /workspace /home/node; \
     git config --system --add safe.directory /workspace
 
-COPY --chmod=0755 start-dsh-web.sh /usr/local/bin/start-dsh-web
-COPY --chmod=0644 dsh-web-proxy.mjs dsh-http-compat.js /usr/local/lib/
-
 USER node
 WORKDIR /workspace
 
@@ -160,6 +157,14 @@ RUN --mount=type=cache,target=/home/node/go/pkg/mod,uid=1000,gid=1000 \
         go install honnef.co/go/tools/cmd/staticcheck@latest; \
         go install github.com/go-task/task/v3/cmd/task@latest; \
     fi
+
+# Runtime proxy files are copied after the expensive toolchain layers.
+# Editing Host/Origin compatibility logic therefore does not invalidate
+# Rust, npm, or Go installation layers.
+USER root
+COPY --chmod=0755 start-dsh-web.sh /usr/local/bin/start-dsh-web
+COPY --chmod=0644 dsh-web-proxy.mjs dsh-http-compat.js /usr/local/lib/
+USER node
 
 LABEL org.opencontainers.image.source="https://github.com/rin721/dsh-docker"
 

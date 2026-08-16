@@ -47,4 +47,48 @@ else
     ok "Dockerfile: rustup installation paths are on one filesystem"
 fi
 
+
+if grep -q 'header_up Host' "${ROOT_DIR}/Caddyfile.gateway"; then
+    bad "Caddyfile.gateway: must preserve external Host"
+else
+    ok "Caddyfile.gateway: external Host preserved"
+fi
+
+if grep -q 'DSH_EXTRA_TRUSTED_HOSTS' "${ROOT_DIR}/compose.yaml" "${ROOT_DIR}/.env.example" "${ROOT_DIR}/start-dsh-web.sh"; then
+    bad "dynamic authority: per-domain trusted-host config still present"
+else
+    ok "dynamic authority: no per-domain trusted-host config"
+fi
+
+if grep -q 'origin-host-mismatch' "${ROOT_DIR}/dsh-web-proxy.mjs" \
+    && grep -q 'result.host = internalAuthority' "${ROOT_DIR}/dsh-web-proxy.mjs" \
+    && grep -q 'result.origin = internalOrigin' "${ROOT_DIR}/dsh-web-proxy.mjs"; then
+    ok "dynamic authority: validation and internal normalization present"
+else
+    bad "dynamic authority: validation/normalization missing"
+fi
+
+copy_line="$(grep -n 'COPY --chmod=0755 start-dsh-web.sh' "${ROOT_DIR}/Dockerfile" | cut -d: -f1)"
+go_line="$(grep -n 'go install golang.org/x/tools/gopls' "${ROOT_DIR}/Dockerfile" | cut -d: -f1)"
+if [[ -n "${copy_line}" && -n "${go_line}" ]] && (( copy_line > go_line )); then
+    ok "Dockerfile: runtime COPY is after expensive toolchain layers"
+else
+    bad "Dockerfile: runtime COPY should be after Rust/npm/Go layers"
+fi
+
+
+if grep -q 'source: ./dsh-web-proxy.mjs' "${ROOT_DIR}/compose.yaml" \
+    && grep -q 'target: /usr/local/lib/dsh-web-proxy.mjs' "${ROOT_DIR}/compose.yaml" \
+    && grep -q 'source: ./start-dsh-web.sh' "${ROOT_DIR}/compose.yaml"; then
+    ok "compose: runtime bridge files are repository-mounted"
+else
+    bad "compose: runtime bridge files must be repository-mounted"
+fi
+
+if grep -q 'DSH_DELIVERY=local' "${ROOT_DIR}/scripts/lib.sh"; then
+    ok "image delivery: auto can reuse an existing local image"
+else
+    bad "image delivery: local image reuse missing"
+fi
+
 (( failed == 0 ))

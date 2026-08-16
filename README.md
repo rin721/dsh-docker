@@ -1,52 +1,48 @@
 # dsh-docker
 
-DeepSeek Harness（DSH）的 Docker 开发环境。
+DeepSeek Harness（DSH）的 Docker Core 运行环境。
 
-这个仓库只负责一件事：
+仓库只负责：
 
-> 在服务器上启动一个可持久化、带登录认证、可供你自己的 Nginx / 1Panel / OpenResty 反向代理的 DSH Core。
+```text
+DSH + 开发工具链 + Workspace + Basic Auth + Core Gateway
+```
 
-项目**不负责**：
-
-- 域名；
-- DNS；
-- TLS / HTTPS；
-- ACME；
-- 80 / 443；
-- Nginx 配置；
-- 公网入口治理。
+域名、DNS、HTTP/HTTPS、证书和公网入口由部署者自己的 Nginx / 1Panel / OpenResty 负责。
 
 ---
 
-## 1. 最终架构
+## 1. 架构
 
 ```text
-你自己的 Nginx / 1Panel / OpenResty
-                │
-                │ reverse proxy
-                ▼
-        127.0.0.1:3080
-                │
-                ▼
-      Caddy Basic Auth Gateway
-                │
-                ▼
-       DSH compatibility proxy
-                │
-                ▼
-        DeepSeek Harness Web
-                │
-                ▼
-            /workspace
+你的 Nginx / 1Panel / OpenResty
+            │
+            │ reverse proxy
+            ▼
+    127.0.0.1:<DSH_PORT>
+            │
+            ▼
+   Caddy Basic Auth Gateway
+            │
+            ▼
+   Dynamic Authority Bridge
+   + HTTP compatibility proxy
+            │
+            ▼
+      DeepSeek Harness
+            │
+            ▼
+        /workspace
 ```
 
-默认 Core 只监听：
+默认：
 
-```text
-127.0.0.1:3080
+```dotenv
+BIND_ADDRESS=127.0.0.1
+DSH_PORT=3080
 ```
 
-部署完成后，你只需要让自己的反向代理把请求转发到：
+因此反向代理上游默认是：
 
 ```text
 http://127.0.0.1:3080
@@ -54,7 +50,81 @@ http://127.0.0.1:3080
 
 ---
 
-## 2. 快速部署
+## 2. 动态域名：不需要配置 DSH_DOMAIN / trusted-host
+
+用户可以在外层使用任意域名：
+
+```text
+https://a.example.com
+https://b.example.net
+http://dev.internal
+```
+
+**dsh-docker 不需要知道这些域名。**
+
+不需要：
+
+```dotenv
+DSH_DOMAIN=...
+DSH_EXTRA_TRUSTED_HOSTS=...
+ACME_EMAIL=...
+```
+
+也不需要因为换域名重建 DSH。
+
+### 工作原理
+
+浏览器正常请求：
+
+```http
+Host: a.example.com
+Origin: https://a.example.com
+```
+
+Core 中的 Dynamic Authority Bridge 先验证：
+
+```text
+Host 存在且是合法 authority
+Sec-Fetch-Site != cross-site
+Origin 存在时 Origin.host == Host
+```
+
+验证通过后才在**内部**规范化为：
+
+```http
+Host: localhost:3079
+Origin: http://localhost:3079
+```
+
+于是 DSH 永远只面对 loopback authority，不需要维护每个用户的域名白名单。
+
+如果外部请求本身是跨 Origin 的，Core Proxy 会在到达 DSH 之前直接返回：
+
+```text
+HTTP 403
+```
+
+### 反向代理唯一必要契约
+
+你的反向代理必须保留原始 Host：
+
+```nginx
+proxy_set_header Host $host;
+```
+
+建议同时保留：
+
+```nginx
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+项目不管理你的域名或 TLS，只要求上游不要把 Host 改成 `127.0.0.1:<port>`。
+
+---
+
+## 3. 快速部署
 
 ```bash
 git clone https://github.com/rin721/dsh-docker.git
@@ -63,279 +133,112 @@ cd dsh-docker
 ./scripts/deploy.sh
 ```
 
-首次运行会自动：
+首次自动执行：
 
 ```text
 创建 .env
-    ↓
+  ↓
 端口预检
-    ↓
-创建 .runtime
-    ↓
-拉 Caddy Gateway
-    ↓
-创建登录用户
-    ↓
+  ↓
+初始化 .runtime
+  ↓
+拉取 Caddy Gateway
+  ↓
+创建 Basic Auth 用户
+  ↓
 验证 Gateway
-    ↓
-优先拉 GHCR 预构建 DSH
-    ↓
+  ↓
+优先拉 GHCR 预构建 DSH 镜像
+  ↓
 拉不到才本地 Build
-    ↓
-启动
-    ↓
+  ↓
+启动服务
+  ↓
 状态检查
 ```
-
-正常情况下不需要修改 Shell 脚本、Compose 或 Caddyfile。
-
----
-
-## 3. 部署完成后
-
-默认：
-
-```dotenv
-BIND_ADDRESS=127.0.0.1
-DSH_PORT=3080
-```
-
-因此你的反向代理上游始终可以写：
-
-```text
-http://127.0.0.1:3080
-```
-
-仓库不会帮你创建域名或配置 Nginx。
 
 ---
 
 ## 4. 配置
 
-第一次 `deploy.sh` 会从 `.env.example` 创建：
+`.env`：
 
-```text
-.env
+```dotenv
+RUNTIME_DIR=./.runtime
+RUNTIME_UID=1000
+RUNTIME_GID=1000
+
+BIND_ADDRESS=127.0.0.1
+DSH_PORT=3080
+
+DSH_IMAGE_MODE=auto
+DSH_IMAGE=ghcr.io/rin721/dsh-docker:latest
+
+AUTH_REALM="DeepSeek Harness"
+AUTH_BCRYPT_COST=14
+GATEWAY_CADDY_VERSION=2.11.4
+
+DSH_HTTP_COMPAT_SHIM=true
+
+DSH_VERSION=latest
+DSH_PERMISSION_MODE=workspace-write
+DSH_TELEMETRY_DISABLED=1
+INSTALL_GO_DEV_TOOLS=true
+
+NODE_VERSION=24.18.0
+GO_VERSION=1.26.5
+RUST_TOOLCHAIN=stable
+PNPM_VERSION=11.7.0
 ```
 
-### Core 监听
+没有任何域名配置。
+
+---
+
+## 5. 访问端口
+
+如果你希望上游使用：
+
+```text
+127.0.0.1:10080
+```
+
+修改：
 
 ```dotenv
 BIND_ADDRESS=127.0.0.1
-DSH_PORT=3080
+DSH_PORT=10080
 ```
 
-如果服务器 3080 已被占用，可以直接改：
-
-```dotenv
-DSH_PORT=13080
-```
-
-你的反向代理上游随之改为：
-
-```text
-http://127.0.0.1:13080
-```
-
-如果明确需要直接对其他机器暴露 Core：
-
-```dotenv
-BIND_ADDRESS=0.0.0.0
-```
-
-但如果本来就使用 Nginx / 1Panel，一般没必要。
-
----
-
-## 5. 部署前端口预检
-
-仓库会在任何耗时的镜像 Build 之前检查：
-
-```text
-DSH_PORT
-```
-
-如果已经被其他程序占用，会立即失败。
-
-例如：
-
-```text
-端口预检失败：宿主机端口 3080 已被其他进程占用。
-```
-
-同时尽量打印：
+然后：
 
 ```bash
-ss -ltnp
+docker compose up -d --force-recreate gateway
 ```
 
-结果。
-
-因此不会再发生：
-
-```text
-等待几分钟 Build
-        ↓
-最后才发现端口冲突
-```
-
----
-
-## 6. 快速镜像交付
-
-默认：
-
-```dotenv
-DSH_IMAGE_MODE=auto
-DSH_IMAGE=ghcr.io/rin721/dsh-docker:latest
-```
-
-三种模式：
-
-### auto
-
-```dotenv
-DSH_IMAGE_MODE=auto
-```
-
-行为：
-
-```text
-尝试 pull 预构建镜像
-        │
-   ┌────┴────┐
-   │         │
- 成功       失败
-   │         │
-直接启动   本地 Build
-```
-
-推荐默认使用。
-
-### pull
-
-```dotenv
-DSH_IMAGE_MODE=pull
-```
-
-只允许预构建镜像。
-
-拉取失败立即退出，不在用户服务器编译。
-
-### build
-
-```dotenv
-DSH_IMAGE_MODE=build
-```
-
-强制使用本仓库 Dockerfile 构建。
-
----
-
-## 7. GHCR
-
-部署前可以检查预构建镜像是否已经可匿名拉取：
+检查：
 
 ```bash
-./scripts/check-image.sh
+curl -I http://127.0.0.1:10080
 ```
 
-仓库包含：
+未带密码正常应返回：
 
 ```text
-.github/workflows/publish-image.yml
+HTTP/1.1 401 Unauthorized
 ```
 
-用于构建：
+带密码：
 
-```text
-linux/amd64
-linux/arm64
+```bash
+curl -u 'username:password' -I http://127.0.0.1:10080
 ```
 
-并发布：
-
-```text
-ghcr.io/rin721/dsh-docker:latest
-```
-
-正式给别人使用前，维护者应先让 GitHub Actions 成功发布镜像，并确保这个 GHCR Package 是 **Public**。
-
-否则普通用户匿名 `docker pull` 会失败；`DSH_IMAGE_MODE=auto` 会进入本地 Build fallback，因此第一次部署仍然会比较慢。
-
-如果你不希望正式用户现场编译，发布镜像后建议把默认配置改为：
-
-```dotenv
-DSH_IMAGE_MODE=pull
-```
-
-这样镜像不可用时会立即失败，而不是现场构建。
+正常应返回 `200` 或 DSH 的有效响应。
 
 ---
 
-## 8. 本地 Build 为什么比以前快
-
-Fallback Dockerfile 使用 BuildKit Cache Mount 缓存：
-
-```text
-apt
-npm
-Go module
-Go build cache
-```
-
-Rustup **不对 `.rustup/tmp` / `.rustup/toolchains` 使用 cache mount**。Rustup 安装过程中会把临时文件移动到 toolchain 目录，把两者放到不同挂载文件系统会触发 Linux `EXDEV / Invalid cross-device link`。Rust 工具链本身依靠正常的 Docker RUN layer cache 复用。
-
-因此：
-
-- 第一次完整 Build 仍然可能慢；
-- 后续 Build 会明显减少重复下载；
-- `update.sh` 不会主动清空 BuildKit cache。
-
-不要日常执行：
-
-```bash
-docker builder prune
-docker system prune -a
-```
-
-否则会主动删除这些缓存。
-
----
-
-
-## 8.1 ARM64 / Rust fallback 构建
-
-项目支持 ARM64。Rustup 会根据容器架构自动选择类似：
-
-```text
-aarch64-unknown-linux-gnu
-```
-
-如果 GHCR 预构建镜像尚未发布，`DSH_IMAGE_MODE=auto` 会进入本地 fallback build。
-
-本地 Rust 安装步骤不再把：
-
-```text
-/home/node/.rustup/tmp
-/home/node/.rustup/toolchains
-```
-
-做成 BuildKit cache mount，避免：
-
-```text
-Invalid cross-device link (os error 18)
-```
-
-如果你刚刚在旧版 Dockerfile 上遇到过这个错误，更新仓库后直接重新：
-
-```bash
-./scripts/deploy.sh
-```
-
-即可。前面的 apt 等成功层仍可继续命中 Docker 普通 layer cache，不需要执行 `docker system prune`。
-
-## 9. Workspace
+## 6. Workspace
 
 宿主机：
 
@@ -349,69 +252,79 @@ Invalid cross-device link (os error 18)
 /workspace
 ```
 
-推荐：
+推荐项目放到：
 
 ```text
 <repo>/.runtime/workspace/projects
-        ↕
+```
+
+对应容器：
+
+```text
 /workspace/projects
 ```
 
-例如进入 DSH：
+例如：
 
 ```bash
 docker compose exec dsh bash
-```
-
-然后：
-
-```bash
 cd /workspace/projects
 git clone https://github.com/example/project.git
 ```
 
-DSH 中选择：
+DSH 工作区选择器里选择：
 
 ```text
 /workspace/projects/project
 ```
 
-不要选择宿主机的：
+---
+
+## 7. 为什么之前 `/api/host.listDirectory` 会 HTTP 403
+
+错误形态：
 
 ```text
-/qwq/dsh-docker/.runtime/...
+transport failure for /api/host.listDirectory: HTTP 403
 ```
 
-DSH 实际运行在容器内。
+旧版代理做了：
+
+```text
+Host   -> localhost
+Origin -> 保留外部域名
+```
+
+最终 DSH 看到：
+
+```text
+Host:   localhost:3079
+Origin: https://external-domain
+```
+
+Host/Origin 不一致，因此拒绝 API。
+
+当前版会先验证外部 Host/Origin，再同时规范化 Host 和 Origin，因此不需要静态 trusted-host 域名。
 
 ---
 
-## 10. 远程 HTTP 浏览器兼容
+## 8. HTTP compatibility shim
 
-DSH 通常在 `localhost` 使用。
-
-如果你自己的 Nginx 最终提供的是普通 HTTP 域名，浏览器可能缺少：
+旧版 DSH Web 在普通远程 HTTP origin 下可能直接调用：
 
 ```js
 crypto.randomUUID()
 ```
 
-项目默认：
+项目保留兼容层：
 
 ```dotenv
 DSH_HTTP_COMPAT_SHIM=true
 ```
 
-DSH 容器内包含：
+仅当浏览器缺少原生 `crypto.randomUUID()` 时补兼容实现。
 
-```text
-dsh-web-proxy.mjs
-dsh-http-compat.js
-```
-
-兼容层只在浏览器没有原生 `crypto.randomUUID` 时补充 UUID v4 实现。
-
-如果你的外层是 HTTPS，浏览器已有原生实现时它不会覆盖。
+较新的 DSH 已经有自己的 `crypto.getRandomValues()` UUID fallback；保留这一层主要是兼容旧镜像/旧版本。
 
 关闭：
 
@@ -419,41 +332,13 @@ dsh-http-compat.js
 DSH_HTTP_COMPAT_SHIM=false
 ```
 
-然后：
-
-```bash
-./scripts/rebuild.sh
-```
-
 ---
 
-## 11. 登录认证
+## 9. Basic Auth
 
-Gateway 使用 HTTP Basic Auth。
+首次 `deploy.sh` 自动提示创建用户。
 
-首次：
-
-```bash
-./scripts/deploy.sh
-```
-
-会提示：
-
-```text
-用户名:
-密码:
-再次输入密码:
-```
-
-密码以 bcrypt Hash 保存：
-
-```text
-.runtime/auth/users.caddy
-```
-
-明文密码不落盘。
-
-创建或修改用户：
+创建/修改：
 
 ```bash
 ./scripts/create-user.sh
@@ -471,51 +356,125 @@ Gateway 使用 HTTP Basic Auth。
 ./scripts/remove-user.sh
 ```
 
----
-
-## 12. 持久化目录
+认证文件：
 
 ```text
-.runtime/
-├── workspace/
-│   └── projects/
-├── dsh-home/
-└── auth/
-    └── users.caddy
+.runtime/auth/users.caddy
 ```
 
-其中：
-
-```text
-workspace   项目
-dsh-home    DSH 状态
-auth        登录用户
-```
-
-普通升级不会删除这些数据。
+明文密码不落盘。
 
 ---
 
-## 13. 更新
+## 10. 镜像交付
+
+默认：
+
+```dotenv
+DSH_IMAGE_MODE=auto
+```
+
+行为：
+
+```text
+pull ghcr.io/rin721/dsh-docker:latest
+       │
+   ┌───┴───────────────┐
+ 成功                 失败
+   │                    │
+直接启动        本机是否已有同名镜像
+                         │
+                    ┌────┴────┐
+                   有         无
+                    │          │
+                 直接复用    本地 Build
+```
+
+因此已经成功构建过一次的服务器，不会因为 GHCR 暂时不可用就每次重新编译 Rust/Go/Node。
+
+正式公开仓库建议先通过 GitHub Actions 发布 GHCR 镜像并设置为 Public。
+
+检查：
+
+```bash
+./scripts/check-image.sh
+```
+
+如果你要求正式用户绝不现场 Build：
+
+```dotenv
+DSH_IMAGE_MODE=pull
+```
+
+---
+
+## 11. 本地 Build 性能
+
+Fallback Dockerfile 缓存：
+
+```text
+apt
+npm
+Go module
+Go build cache
+```
+
+Rustup 的 `tmp/toolchains` 不使用 cache mount，避免 `Invalid cross-device link`。
+
+此外，当前 Dockerfile 把：
+
+```text
+start-dsh-web.sh
+dsh-web-proxy.mjs
+dsh-http-compat.js
+```
+
+放到 Rust/npm/Go 安装层**之后**再 COPY。
+
+更重要的是，正常 Compose 部署还会把这三个仓库文件**只读 bind mount** 到容器中，覆盖镜像内副本。
+
+因此：
+
+```text
+修改动态 Host/Origin 代理
+修改 HTTP compatibility shim
+修改 DSH 启动包装脚本
+```
+
+只需要重新创建容器，不需要重新编译 Rust/npm/Go 工具链。
+
+例如：
+
+```bash
+docker compose up -d --force-recreate dsh gateway
+```
+
+---
+
+## 11.1 已经构建成功过旧版镜像的服务器
+
+如果服务器上已经存在：
+
+```text
+ghcr.io/rin721/dsh-docker:latest
+```
+
+那么更新到当前仓库后，即使 GHCR 暂时 pull 不到，`DSH_IMAGE_MODE=auto` 也会直接复用本机镜像。
+
+动态 Host/Origin 修复来自仓库 bind mount，因此不需要为了这个修复重新跑几百秒 Rust/Go/npm Build。
+
+直接：
+
+```bash
+./scripts/deploy.sh
+```
+
+即可。
+
+## 12. 更新
 
 ```bash
 ./scripts/update.sh
-```
-
-流程：
-
-```text
-git fetch
-    ↓
-git pull --ff-only
-    ↓
-端口预检
-    ↓
-更新 Gateway
-    ↓
-pull / build DSH
-    ↓
-docker compose up -d
 ```
 
 不会删除：
@@ -527,13 +486,13 @@ docker compose up -d
 
 ---
 
-## 14. 重建
+## 13. 重建
 
 ```bash
 ./scripts/rebuild.sh
 ```
 
-强制本地 Build：
+强制本地构建：
 
 ```bash
 DSH_IMAGE_MODE=build ./scripts/rebuild.sh
@@ -541,66 +500,29 @@ DSH_IMAGE_MODE=build ./scripts/rebuild.sh
 
 ---
 
-## 15. 状态
+## 14. 检查与诊断
+
+状态：
 
 ```bash
 ./scripts/check.sh
 ```
 
-会输出：
-
-```text
-Core listen
-Proxy target
-Auth users
-Runtime
-Workspace
-HTTP compat
-```
-
-其中最关键的是：
-
-```text
-Proxy target : http://127.0.0.1:3080
-```
-
-这就是你自己的 Nginx 上游。
-
----
-
-## 16. 诊断
+诊断：
 
 ```bash
 ./scripts/doctor.sh
 ```
 
-检查：
-
-```text
-Docker
-Docker Compose
-.env
-Core 配置
-端口冲突
-Basic Auth
-Compose
-```
-
----
-
-## 17. 停止
+仓库静态自检：
 
 ```bash
-./scripts/stop.sh
+./scripts/self-test.sh
 ```
-
-不会删除 `.runtime`。
 
 ---
 
-## 18. 日志
-
-全部：
+## 15. 日志
 
 ```bash
 docker compose logs -f --tail=200
@@ -618,69 +540,47 @@ Gateway：
 docker compose logs -f gateway
 ```
 
----
-
-## 19. 项目目录
+动态代理启动日志类似：
 
 ```text
-dsh-docker/
-├── Dockerfile
-├── compose.yaml
-├── compose.build.yaml
-├── Caddyfile.gateway
-│
-├── dsh-web-proxy.mjs
-├── dsh-http-compat.js
-├── start-dsh-web.sh
-│
-├── .env.example
-├── .gitignore
-├── .dockerignore
-├── Makefile
-├── README.md
-│
-├── auth/
-│   └── README.md
-│
-├── .github/
-│   └── workflows/
-│       └── publish-image.yml
-│
-└── scripts/
-    ├── lib.sh
-    ├── init-runtime.sh
-    ├── create-user.sh
-    ├── list-users.sh
-    ├── remove-user.sh
-    ├── deploy.sh
-    ├── rebuild.sh
-    ├── update.sh
-    ├── check.sh
-    ├── doctor.sh
-    ├── self-test.sh
-    ├── stop.sh
-    └── cleanup-legacy.sh
+DSH compatibility proxy listening on 0.0.0.0:3080 -> 127.0.0.1:3079; authority=dynamic
 ```
 
 ---
 
-## 20. 职责边界
-
-### dsh-docker 负责
+## 16. 持久化
 
 ```text
-DSH
-开发环境
+.runtime/
+├── workspace/
+│   └── projects/
+├── dsh-home/
+└── auth/
+    └── users.caddy
+```
+
+普通更新、重建、删除容器都不应该删除 `.runtime`。
+
+---
+
+## 17. Core-only 职责边界
+
+### 本仓库负责
+
+```text
+DeepSeek Harness
+开发工具链
 Workspace
 持久化
 Basic Auth
 Core Gateway
-HTTP browser compatibility
-镜像 Build / Pull
-生命周期脚本
+动态 Host/Origin trust bridge
+旧版 HTTP 浏览器兼容
+镜像 Pull/Build
+部署/更新/诊断脚本
 ```
 
-### dsh-docker 不负责
+### 本仓库不负责
 
 ```text
 域名
@@ -688,32 +588,18 @@ DNS
 Nginx
 1Panel
 OpenResty
-HTTPS
+TLS/HTTPS
 证书
 ACME
-80/443
 Cloudflare
+80/443
 公网入口
 ```
 
-这部分完全交给部署者自己的基础设施。
-
----
-
-## 21. 最简使用流程
-
-```bash
-git clone https://github.com/rin721/dsh-docker.git
-
-cd dsh-docker
-
-./scripts/deploy.sh
-```
-
-部署成功后记住：
+部署完成后，你只需要拿：
 
 ```text
-http://127.0.0.1:3080
+http://127.0.0.1:<DSH_PORT>
 ```
 
-然后去你自己的 Nginx / 1Panel 配反向代理即可。
+去配置自己的反向代理。

@@ -236,8 +236,12 @@ resolve_dsh_delivery() {
             if output="$(docker pull "${image}" 2>&1)"; then
                 printf '%s\n' "${output}"
                 DSH_DELIVERY=prebuilt
+            elif docker image inspect "${image}" >/dev/null 2>&1; then
+                echo "预构建镜像当前无法拉取；复用本机已有 DSH 镜像。" >&2
+                echo "仓库内的启动/动态代理文件会通过只读 bind mount 覆盖镜像内副本。" >&2
+                DSH_DELIVERY=local
             else
-                echo "预构建镜像不可用，自动回退本地构建。" >&2
+                echo "预构建镜像不可用且本机无可复用镜像，自动回退本地构建。" >&2
                 DSH_DELIVERY=build
             fi
             ;;
@@ -255,6 +259,9 @@ prepare_dsh_image() {
     case "${DSH_DELIVERY}" in
         prebuilt)
             echo "使用预构建 DSH 镜像；跳过服务器本地编译。"
+            ;;
+        local)
+            echo "使用本机已有 DSH 镜像；跳过服务器本地编译。"
             ;;
         build)
             echo "本地构建 DSH 镜像..."

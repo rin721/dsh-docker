@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# DSH remains loopback-only inside the container.
-# A small Node proxy exposes port 3080 inside the Docker network and can inject
-# browser compatibility code for remote plain-HTTP deployments.
 readonly internal_host="${DSH_INTERNAL_HOST:-127.0.0.1}"
 readonly internal_port="${DSH_INTERNAL_PORT:-3079}"
 readonly proxy_port="${DSH_PROXY_PORT:-3080}"
@@ -32,19 +29,9 @@ dsh_args=(
     web
     --host "${internal_host}"
     --port "${internal_port}"
-    --trusted-host "localhost:${proxy_port}"
-    --trusted-host "127.0.0.1:${proxy_port}"
-    --trusted-host "localhost:${internal_port}"
-    --trusted-host "127.0.0.1:${internal_port}"
+    --trusted-host "localhost"
+    --trusted-host "127.0.0.1"
 )
-
-if [[ -n "${DSH_EXTRA_TRUSTED_HOSTS:-}" ]]; then
-    IFS=',' read -r -a extra_hosts <<< "${DSH_EXTRA_TRUSTED_HOSTS}"
-    for trusted_host in "${extra_hosts[@]}"; do
-        trusted_host="${trusted_host//[[:space:]]/}"
-        [[ -n "${trusted_host}" ]] && dsh_args+=(--trusted-host "${trusted_host}")
-    done
-fi
 
 dsh "${dsh_args[@]}" "$@" &
 dsh_pid="$!"

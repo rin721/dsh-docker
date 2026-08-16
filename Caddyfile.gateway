@@ -9,11 +9,9 @@
 	}
 
 	reverse_proxy dsh:3080 {
-		# DSH Web 对 Host 有安全校验。固定上游 Host，不把任意公网 Host 直接透传给 DSH。
-		header_up Host "localhost:3080"
+		# Preserve the original Host/Origin. The DSH compatibility proxy performs
+		# same-origin validation, then normalizes the request to internal localhost.
 		header_up -Authorization
-
-		# Agent/Web UI 可能使用流式响应。
 		flush_interval -1
 	}
 }

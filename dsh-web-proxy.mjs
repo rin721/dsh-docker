@@ -14,22 +14,106 @@ const compatEnabled = !["0", "false", "no", "off"].includes(
   String(process.env.DSH_HTTP_COMPAT_SHIM ?? "true").toLowerCase(),
 );
 
+const internalAuthority = `localhost:${upstreamPort}`;
+const internalOrigin = `http://${internalAuthority}`;
 const compatPath = "/__dsh_http_compat.js";
 const compatScript = readFileSync(join(here, "dsh-http-compat.js"), "utf8");
 const compatTag = `<script src="${compatPath}"></script>`;
 
-function upstreamHeaders(headers) {
+function singleHeader(headers, name) {
+  const value = headers[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseAuthority(authority) {
+  try {
+    const parsed = new URL(`http://${authority}`);
+    // Host must be a bare authority. Reject userinfo/path/query/hash shapes that
+    // URL parsing would otherwise silently accept.
+    if (
+      parsed.username !== "" ||
+      parsed.password !== "" ||
+      parsed.pathname !== "/" ||
+      parsed.search !== "" ||
+      parsed.hash !== "" ||
+      parsed.hostname === ""
+    ) {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function validateExternalRequest(headers) {
+  const host = singleHeader(headers, "host");
+  if (host === undefined || parseAuthority(host) === undefined) {
+    return { ok: false, reason: "invalid-host" };
+  }
+
+  if (singleHeader(headers, "sec-fetch-site") === "cross-site") {
+    return { ok: false, reason: "cross-site" };
+  }
+
+  const origin = singleHeader(headers, "origin");
+  if (origin !== undefined) {
+    try {
+      // Mirror DSH's browser trust contract: when Origin is present, its
+      // authority must exactly match Host. Scheme itself is not compared.
+      const hostUrl = new URL(`http://${host}`);
+      if (new URL(origin).host !== hostUrl.host) {
+        return { ok: false, reason: "origin-host-mismatch" };
+      }
+    } catch {
+      return { ok: false, reason: "invalid-origin" };
+    }
+  }
+
+  return { ok: true, host };
+}
+
+function internalizeHeaders(headers) {
   const result = { ...headers };
 
-  // DSH itself stays on loopback. The compatibility proxy is the only
-  // process that talks to the internal DSH web listener.
-  result.host = `localhost:${upstreamPort}`;
+  // DSH stays loopback-only. We terminate the external authority at this
+  // trusted proxy boundary after validation, so DSH always sees localhost.
+  result.host = internalAuthority;
 
-  // HTML rewriting is only reliable on identity-encoded bodies. Static
-  // JS/CSS/assets still stream normally; this only asks DSH not to compress.
+  // If the browser supplied Origin, normalize it together with Host. Leaving
+  // the external Origin while changing Host would make DSH reject /api with 403.
+  if (singleHeader(headers, "origin") !== undefined) {
+    result.origin = internalOrigin;
+  }
+
+  // HTML rewriting is reliable only with an identity-encoded response.
   result["accept-encoding"] = "identity";
 
   return result;
+}
+
+function rejectHttp(response, reason) {
+  response.writeHead(403, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+    "x-dsh-proxy-reject": reason,
+  });
+  response.end("forbidden\n");
+}
+
+function rejectUpgrade(socket, reason) {
+  if (socket.writable) {
+    const body = "forbidden\n";
+    socket.end(
+      "HTTP/1.1 403 Forbidden\r\n" +
+        "Connection: close\r\n" +
+        "Content-Type: text/plain; charset=utf-8\r\n" +
+        `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+        `X-DSH-Proxy-Reject: ${reason}\r\n` +
+        "\r\n" +
+        body,
+    );
+  }
 }
 
 function sanitizeResponseHeaders(headers, rewritten) {
@@ -62,6 +146,12 @@ function injectCompatScript(html) {
 }
 
 const server = http.createServer((clientRequest, clientResponse) => {
+  const trust = validateExternalRequest(clientRequest.headers);
+  if (!trust.ok) {
+    rejectHttp(clientResponse, trust.reason);
+    return;
+  }
+
   if (clientRequest.url === compatPath) {
     if (!compatEnabled) {
       clientResponse.writeHead(404, {
@@ -86,8 +176,8 @@ const server = http.createServer((clientRequest, clientResponse) => {
       host: upstreamHost,
       port: upstreamPort,
       method: clientRequest.method,
-      path: clientRequest.url,
-      headers: upstreamHeaders(clientRequest.headers),
+      path: clientRequest.url || "/",
+      headers: internalizeHeaders(clientRequest.headers),
     },
     (upstreamResponse) => {
       const contentType = String(upstreamResponse.headers["content-type"] || "");
@@ -156,12 +246,18 @@ const server = http.createServer((clientRequest, clientResponse) => {
 });
 
 server.on("upgrade", (request, clientSocket, head) => {
+  const trust = validateExternalRequest(request.headers);
+  if (!trust.ok) {
+    rejectUpgrade(clientSocket, trust.reason);
+    return;
+  }
+
   const upstreamSocket = net.connect(upstreamPort, upstreamHost);
 
   upstreamSocket.on("connect", () => {
-    const headers = upstreamHeaders(request.headers);
+    const headers = internalizeHeaders(request.headers);
 
-    let handshake = `${request.method} ${request.url} HTTP/${request.httpVersion}\r\n`;
+    let handshake = `${request.method} ${request.url || "/"} HTTP/${request.httpVersion}\r\n`;
     for (const [name, value] of Object.entries(headers)) {
       if (Array.isArray(value)) {
         for (const item of value) {
@@ -199,6 +295,6 @@ server.on("clientError", (_error, socket) => {
 server.listen(listenPort, listenHost, () => {
   console.log(
     `DSH compatibility proxy listening on ${listenHost}:${listenPort} -> ` +
-      `${upstreamHost}:${upstreamPort}; HTTP compat shim=${compatEnabled}`,
+      `${upstreamHost}:${upstreamPort}; authority=dynamic; HTTP compat shim=${compatEnabled}`,
   );
 });
