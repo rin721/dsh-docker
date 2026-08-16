@@ -6,13 +6,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib.sh"
 cd "${ROOT_DIR}"
 
+bash "${ROOT_DIR}/scripts/repair-permissions.sh" >/dev/null 2>&1 || true
+
 require_docker
 [[ -f .env ]] || cp .env.example .env
 load_env "${ROOT_DIR}"
 
 validate_core_config
 preflight_core_port "${ROOT_DIR}"
-"${ROOT_DIR}/scripts/init-runtime.sh"
+bash "${ROOT_DIR}/scripts/init-runtime.sh"
 
 USERS_FILE="$(users_file "${ROOT_DIR}")"
 has_auth_user "${USERS_FILE}" || {

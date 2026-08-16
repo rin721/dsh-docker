@@ -29,6 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Static repository validation
+        shell: bash
+        run: bash scripts/self-test.sh
+
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3

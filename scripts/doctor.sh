@@ -38,4 +38,29 @@ fi
 
 echo "Reverse proxy upstream: http://127.0.0.1:${DSH_PORT:-3080}"
 
+
+permission_error=0
+shopt -s nullglob
+permission_files=("${ROOT_DIR}/start-dsh-web.sh" "${ROOT_DIR}"/scripts/*.sh)
+shopt -u nullglob
+for file in "${permission_files[@]}"; do
+    [[ -x "${file}" ]] || permission_error=1
+done
+if (( permission_error == 0 )); then
+    ok "shell executable permissions"
+else
+    bad "shell executable permissions"
+fi
+
+if [[ -n "$(docker compose ps -q dsh 2>/dev/null || true)" ]]; then
+    if docker compose exec -T dsh sh -lc '
+        test -L "$HOME/workspace" &&
+        test "$(readlink "$HOME/workspace")" = "/workspace"
+    ' >/dev/null 2>&1; then
+        ok "workspace UI link: /home/node/workspace -> /workspace"
+    else
+        bad "workspace UI link missing or incorrect"
+    fi
+fi
+
 (( errors == 0 )) || exit 1

@@ -13,6 +13,18 @@ docker compose ps
 
 echo
 runtime="$(runtime_dir_abs "${ROOT_DIR}")"
+
+workspace_ui="not-running"
+if [[ -n "$(docker compose ps -q dsh 2>/dev/null || true)" ]]; then
+    if docker compose exec -T dsh sh -lc '
+        test -L "$HOME/workspace" &&
+        test "$(readlink "$HOME/workspace")" = "/workspace"
+    ' >/dev/null 2>&1; then
+        workspace_ui="/home/node/workspace -> /workspace"
+    else
+        workspace_ui="ERROR"
+    fi
+fi
 users="$(users_file "${ROOT_DIR}")"
 count=0
 [[ -f "${users}" ]] && count="$(awk 'NF >= 2 { n++ } END { print n+0 }' "${users}")"
@@ -22,6 +34,7 @@ echo "Proxy target : http://127.0.0.1:${DSH_PORT:-3080}"
 echo "Auth users   : ${count}"
 echo "Runtime      : ${runtime}"
 echo "Workspace    : ${runtime}/workspace <-> /workspace"
+echo "Workspace UI : ${workspace_ui}"
 echo "HTTP compat  : ${DSH_HTTP_COMPAT_SHIM:-true}"
 
 host="${BIND_ADDRESS:-127.0.0.1}"

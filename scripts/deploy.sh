@@ -6,8 +6,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib.sh"
 cd "${ROOT_DIR}"
 
+# Self-heal host filesystem modes when this script was invoked as
+# `bash scripts/deploy.sh` from a checkout whose executable bits were lost.
+bash "${ROOT_DIR}/scripts/repair-permissions.sh" >/dev/null 2>&1 || true
+
 require_docker
-"${ROOT_DIR}/scripts/cleanup-legacy.sh"
+bash "${ROOT_DIR}/scripts/cleanup-legacy.sh"
 
 if [[ ! -f .env ]]; then
     cp .env.example .env
@@ -20,7 +24,7 @@ validate_core_config
 echo "执行端口预检..."
 preflight_core_port "${ROOT_DIR}"
 
-"${ROOT_DIR}/scripts/init-runtime.sh"
+bash "${ROOT_DIR}/scripts/init-runtime.sh"
 
 echo
 echo "Core listen : ${BIND_ADDRESS:-127.0.0.1}:${DSH_PORT:-3080}"
@@ -41,7 +45,7 @@ USERS_FILE="$(users_file "${ROOT_DIR}")"
 if ! has_auth_user "${USERS_FILE}"; then
     echo
     echo "首次部署需要创建登录用户。"
-    "${ROOT_DIR}/scripts/create-user.sh"
+    bash "${ROOT_DIR}/scripts/create-user.sh"
 fi
 
 echo "验证 Gateway 配置..."
@@ -64,4 +68,4 @@ echo
 echo "你的反向代理上游地址：http://127.0.0.1:${DSH_PORT:-3080}"
 echo
 
-"${ROOT_DIR}/scripts/check.sh"
+bash "${ROOT_DIR}/scripts/check.sh"

@@ -1,40 +1,46 @@
-.PHONY: deploy update rebuild check doctor self-test check-image stop user users remove-user build shell
+.PHONY: deploy update rebuild check doctor self-test prepare-release repair-permissions check-image stop user users remove-user build shell
 
 deploy:
-	./scripts/deploy.sh
+	bash ./scripts/deploy.sh
 
 update:
-	./scripts/update.sh
+	bash ./scripts/update.sh
 
 rebuild:
-	./scripts/rebuild.sh
+	bash ./scripts/rebuild.sh
 
 check:
-	./scripts/check.sh
+	bash ./scripts/check.sh
 
 doctor:
-	./scripts/doctor.sh
+	bash ./scripts/doctor.sh
 
 self-test:
-	./scripts/self-test.sh
+	bash ./scripts/self-test.sh
+
+prepare-release:
+	bash ./scripts/prepare-release.sh
+
+repair-permissions:
+	bash ./scripts/repair-permissions.sh
 
 check-image:
-	./scripts/check-image.sh
+	bash ./scripts/check-image.sh
 
 stop:
-	./scripts/stop.sh
+	bash ./scripts/stop.sh
 
 user:
-	./scripts/create-user.sh
+	bash ./scripts/create-user.sh
 
 users:
-	./scripts/list-users.sh
+	bash ./scripts/list-users.sh
 
 remove-user:
-	./scripts/remove-user.sh
+	bash ./scripts/remove-user.sh
 
 build:
-	DSH_IMAGE_MODE=build ./scripts/rebuild.sh
+	DSH_IMAGE_MODE=build bash ./scripts/rebuild.sh
 
 shell:
 	docker compose exec dsh bash

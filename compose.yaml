@@ -2,6 +2,9 @@ services:
   dsh:
     image: "${DSH_IMAGE:-ghcr.io/rin721/dsh-docker:latest}"
     restart: unless-stopped
+    # Execute through bash so a host filesystem that lost the +x bit on
+    # the bind-mounted launcher still cannot break container startup.
+    command: ["bash", "/usr/local/bin/start-dsh-web"]
     working_dir: /workspace
     environment:
       DSH_HOME: /home/node/.dsh

@@ -171,4 +171,4 @@ LABEL org.opencontainers.image.source="https://github.com/rin721/dsh-docker"
 EXPOSE 3080
 
 ENTRYPOINT ["/usr/bin/tini", "-g", "--"]
-CMD ["/usr/local/bin/start-dsh-web"]
+CMD ["bash", "/usr/local/bin/start-dsh-web"]

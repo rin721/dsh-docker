@@ -26,4 +26,5 @@ git pull --ff-only
 new_rev="$(git rev-parse --short HEAD)"
 
 echo "Git: ${old_rev} -> ${new_rev}"
-exec "${ROOT_DIR}/scripts/rebuild.sh"
+bash "${ROOT_DIR}/scripts/repair-permissions.sh" >/dev/null 2>&1 || true
+exec bash "${ROOT_DIR}/scripts/rebuild.sh"
