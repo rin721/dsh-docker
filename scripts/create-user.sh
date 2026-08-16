@@ -26,7 +26,24 @@ echo
 
 output="$(docker run --rm "${IMAGE}" user create --username "${username}" --password "${password}")"
 unset password password2
-record="$(printf '%s\n' "${output}" | sed -n 's/^--auth\.users=//p' | tail -n 1)"
+
+# 兼容 Tinyauth 不同版本的输出格式，同时清理 CRLF。
+clean_output="$(printf '%s\n' "${output}" | tr -d '\r')"
+
+record=""
+
+while IFS= read -r line; do
+    case "${line}" in
+        TINYAUTH_AUTH_USERS=*)
+            record="${line#TINYAUTH_AUTH_USERS=}"
+            break
+            ;;
+        --auth.users=*)
+            record="${line#--auth.users=}"
+            break
+            ;;
+    esac
+done <<< "${clean_output}"
 
 if [[ -z "${record}" || "${record}" != "${username}:"\$2* ]]; then
     echo "无法从 Tinyauth CLI 输出中提取 bcrypt 用户记录。" >&2
