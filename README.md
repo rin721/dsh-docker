@@ -1,689 +1,248 @@
 # dsh-docker
 
-DeepSeek Harness（DSH）的 Docker 化开发环境。
+DeepSeek Harness（DSH）的 Docker 化长期开发环境。
 
-仓库只负责：
+## 持久化
 
-```text
-DSH
-+ Basic Auth
-+ /workspace 持久化
-+ 动态反向代理 Host/Origin 兼容
-+ 浏览器 HTTP 兼容
-+ 快速镜像 Pull / 本地 Build fallback
-```
-
-域名、HTTPS、Nginx、1Panel、80/443 等公网入口由部署者自己管理。
-
----
-
-## 1. 架构
+默认所有长期状态都在仓库的：
 
 ```text
-你的 Nginx / 1Panel / OpenResty
-                │
-                ▼
-      http://127.0.0.1:3080
-                │
-                ▼
-        Caddy Basic Auth
-                │
-                ▼
-     DSH Dynamic Authority Bridge
-                │
-                ▼
-       DeepSeek Harness Web
-                │
-                ▼
-            /workspace
+.runtime/
 ```
-
-默认：
-
-```dotenv
-BIND_ADDRESS=127.0.0.1
-DSH_PORT=3080
-```
-
-反向代理上游：
 
 ```text
-http://127.0.0.1:3080
+.runtime/
+├── workspace/                -> /workspace
+├── dsh-home/                 -> /home/node/.dsh
+├── home/                     -> /home/node/.persist
+│   ├── ssh/                  -> ~/.ssh
+│   ├── gnupg/                -> ~/.gnupg
+│   ├── aws/                  -> ~/.aws
+│   ├── kube/                 -> ~/.kube
+│   ├── docker/               -> ~/.docker
+│   ├── config/               -> ~/.config
+│   ├── local/share/          -> ~/.local/share
+│   ├── local/state/          -> ~/.local/state
+│   ├── git/config            -> ~/.gitconfig
+│   ├── git/credentials       -> ~/.git-credentials
+│   ├── shell/bash_history    -> ~/.bash_history
+│   ├── shell/python_history  -> ~/.python_history
+│   ├── npm/npmrc             -> ~/.npmrc
+│   ├── cargo/config.toml     -> ~/.cargo/config.toml
+│   ├── cargo/credentials.toml-> ~/.cargo/credentials.toml
+│   ├── netrc                 -> ~/.netrc
+│   └── pypirc                -> ~/.pypirc
+└── auth/users.caddy          -> Web Basic Auth
 ```
 
----
+### DSH 自身
 
-## 2. 快速部署
-
-```bash
-git clone https://github.com/rin721/dsh-docker.git
-cd dsh-docker
-
-./scripts/deploy.sh
-```
-
-如果某个非标准文件系统、ZIP 解压器或旧仓库历史意外丢失了 executable bit，也可以直接：
-
-```bash
-bash scripts/deploy.sh
-```
-
-`deploy.sh` 会自动修复当前工作区的 Shell 文件权限。
-
-首次运行会自动：
+整个：
 
 ```text
-创建 .env
-    ↓
-修复 Shell 文件系统权限
-    ↓
-端口预检
-    ↓
-初始化 .runtime
-    ↓
-创建登录用户
-    ↓
-验证 Gateway
-    ↓
-优先 Pull DSH 预构建镜像
-    ↓
-必要时本地 Build
-    ↓
-启动
-    ↓
-状态检查
+/home/node/.dsh
 ```
 
----
-
-## 3. Workspace
-
-宿主机：
+映射到：
 
 ```text
-<repo>/.runtime/workspace
+.runtime/dsh-home
 ```
 
-容器：
+因此 DSH Home 下的配置、profiles、sessions/state、credentials 等都会跟随宿主机持久化。
+
+### Workspace
 
 ```text
+.runtime/workspace
+        ↕
 /workspace
 ```
 
-例如：
-
-```text
-/qwq/dsh-docker/.runtime/workspace/project-a
-```
-
-对应：
-
-```text
-/workspace/project-a
-```
-
-### 3.1 为什么目录选择器以前只看到 `go`
-
-DSH 的 Browse Directory Picker 在没有指定路径时从运行用户的 `homedir()` 开始。
-
-容器用户是：
-
-```text
-node
-```
-
-Home：
-
-```text
-/home/node
-```
-
-Go 的默认工作目录：
-
-```text
-/home/node/go
-```
-
-所以旧版本打开目录选择器会首先看到：
-
-```text
-go
-```
-
-而 `/workspace` 在 Home 之外。
-
-### 3.2 v4 修复
-
-启动时自动创建：
+目录选择器默认从 `/home/node` 开始，因此启动时自动创建：
 
 ```text
 /home/node/workspace -> /workspace
 ```
 
-不会修改：
+### Git / SSH
+
+SSH：
 
 ```text
-HOME=/home/node
-GOPATH=/home/node/go
-CARGO_HOME=/home/node/.cargo
-RUSTUP_HOME=/home/node/.rustup
-DSH_HOME=/home/node/.dsh
+~/.ssh
+  ↓
+.runtime/home/ssh
 ```
 
-因此目录选择器现在会看到：
+Git：
 
 ```text
-主目录
+~/.gitconfig
+  ↓
+.runtime/home/git/config
 
-go
-workspace
+~/.git-credentials
+  ↓
+.runtime/home/git/credentials
 ```
 
-点击：
-
-```text
-workspace
-```
-
-实际进入：
-
-```text
-/workspace
-```
-
-也就是宿主机：
-
-```text
-.runtime/workspace
-```
-
-如果 `/home/node/workspace` 已经是真实目录，启动脚本不会覆盖它，只会打印警告。
-
----
-
-## 4. Git executable bit
-
-Shell 文件必须在 Git 仓库中记录为：
-
-```text
-100755
-```
-
-而不是：
-
-```text
-100644
-```
-
-否则 Linux 用户 `git clone` / `git pull` 后不能直接：
+生成 Key：
 
 ```bash
+docker compose exec dsh bash
+ssh-keygen -t ed25519 -C "you@example.com"
+```
+
+删除或重建容器后 Key 仍然存在。
+
+> `git credential.helper store` 会明文保存 HTTPS 凭据；GitHub 认证更推荐 SSH Key。
+
+## 为什么不映射整个 `/home/node`
+
+镜像中的 Go/Rust/npm/DSH 工具链有一部分位于 Home 下。整个 Home bind mount 会把镜像里的工具隐藏掉。
+
+所以使用：
+
+```text
+.runtime/home -> /home/node/.persist
+```
+
+再把真正需要长期保存的 Home 路径链接进去。
+
+## 旧版本迁移
+
+`deploy.sh` 和 `rebuild.sh` 会在替换已有容器之前执行：
+
+```bash
+scripts/migrate-home-state.sh
+```
+
+如果旧容器已有 SSH Key、Git config、XDG config 等，而 `.runtime/home` 对应位置还为空，会先复制到宿主机。已有持久化数据不会被覆盖。
+
+## 权限
+
+自动维护：
+
+```text
+.runtime/home          0700
+~/.ssh                 0700
+SSH private files      0600
+SSH public/known_hosts 0644
+GnuPG                  0700/0600
+Git/CLI secret files   0600
+```
+
+手工修复：
+
+```bash
+bash scripts/fix-home-permissions.sh
+```
+
+## 部署
+
+```bash
+git clone https://github.com/rin721/dsh-docker.git
+cd dsh-docker
 ./scripts/deploy.sh
 ```
 
-### 4.1 发布包
-
-本项目发布包中的：
-
-```text
-start-dsh-web.sh
-scripts/*.sh
-```
-
-都保存为：
-
-```text
-0755
-```
-
-### 4.2 仓库维护者提交到 GitHub
-
-在提交发布版本前运行：
+如果 executable bit 被文件系统破坏：
 
 ```bash
-bash scripts/prepare-release.sh
+bash scripts/deploy.sh
 ```
 
-它会执行：
-
-```text
-chmod 0755
-        +
-git update-index --chmod=+x
-        +
-self-test
-```
-
-然后：
-
-```bash
-git add -A
-git commit -m "fix: preserve executable scripts and workspace entry"
-git push
-```
-
-之后 GitHub 仓库会真正保存 executable bit。
-
-未来 Linux 用户：
-
-```bash
-git clone ...
-```
-
-得到的脚本就是可执行的。
-
-### 4.3 为什么只 `chmod +x` 还不够
-
-Git 需要在 index 中记录 executable bit。
-
-所以维护者发布时必须保证：
-
-```bash
-git ls-files -s scripts/deploy.sh
-```
-
-类似：
-
-```text
-100755 ...
-```
-
-项目的 CI：
-
-```text
-.github/workflows/validate-repository.yml
-```
-
-会自动检查全部 Shell 文件。
-
-如果某个文件被提交成：
-
-```text
-100644
-```
-
-CI 直接失败。
-
-### 4.4 运行时双保险
-
-即使某个文件系统意外丢失了：
-
-```text
-start-dsh-web.sh
-```
-
-的 `+x`，Compose 也显式使用：
-
-```yaml
-command: ["bash", "/usr/local/bin/start-dsh-web"]
-```
-
-因此容器启动不再依赖宿主机 bind mount 的 execute bit。
-
-Makefile 同样统一使用：
-
-```text
-bash scripts/*.sh
-```
-
----
-
-## 5. 动态域名 / Host
-
-项目不要求：
-
-```dotenv
-DSH_DOMAIN=
-DSH_EXTRA_TRUSTED_HOSTS=
-```
-
-外层可以随时换域名。
-
-例如：
-
-```text
-https://dsh.example.com
-https://dev.example.net
-http://internal.example.local
-```
-
-不需要重建 DSH。
-
-链路：
-
-```text
-Browser
-Host: external.example.com
-Origin: https://external.example.com
-        ↓
-Caddy Basic Auth
-        ↓
-Dynamic Authority Bridge
-        │
-        ├─ 校验 Host
-        ├─ Origin 存在时校验 Origin.host == Host
-        ├─ 拒绝 Sec-Fetch-Site: cross-site
-        │
-        ▼
-内部规范化
-Host: localhost:3079
-Origin: http://localhost:3079
-        ↓
-DSH
-```
-
-因此 DSH 内部仍然只信任 loopback，不需要知道最终公网域名。
-
----
-
-## 6. 远程 HTTP 浏览器兼容
+## Core
 
 默认：
 
 ```dotenv
-DSH_HTTP_COMPAT_SHIM=true
-```
-
-用于兼容某些远程普通 HTTP Origin 下缺失的：
-
-```js
-crypto.randomUUID
-```
-
-它只在原生 API 不存在时补充实现。
-
-HTTPS / localhost 中存在原生实现时不会覆盖。
-
----
-
-## 7. 配置
-
-`.env.example`：
-
-```dotenv
-RUNTIME_DIR=./.runtime
-RUNTIME_UID=1000
-RUNTIME_GID=1000
-
 BIND_ADDRESS=127.0.0.1
 DSH_PORT=3080
+```
 
+你自己的 Nginx / 1Panel upstream：
+
+```text
+http://127.0.0.1:3080
+```
+
+仓库不管理域名、TLS、80/443。
+
+## 动态反代
+
+不要求配置具体域名。Core 会校验外部 Host/Origin，再转换成 DSH 内部 loopback authority。
+
+## 镜像
+
+默认：
+
+```dotenv
 DSH_IMAGE_MODE=auto
 DSH_IMAGE=ghcr.io/rin721/dsh-docker:latest
-
-AUTH_REALM="DeepSeek Harness"
-AUTH_BCRYPT_COST=14
-GATEWAY_CADDY_VERSION=2.11.4
-
-DSH_HTTP_COMPAT_SHIM=true
-
-DSH_VERSION=latest
-DSH_PERMISSION_MODE=workspace-write
-DSH_TELEMETRY_DISABLED=1
-INSTALL_GO_DEV_TOOLS=true
-
-NODE_VERSION=24.18.0
-GO_VERSION=1.26.5
-RUST_TOOLCHAIN=stable
-PNPM_VERSION=11.7.0
 ```
 
----
+优先 Pull；不可用时复用本地镜像；仍没有才本地 Build。
 
-## 8. DSH 镜像模式
-
-### auto
-
-```dotenv
-DSH_IMAGE_MODE=auto
-```
-
-优先：
-
-```text
-docker pull ghcr.io/rin721/dsh-docker:latest
-```
-
-如果失败：
-
-```text
-复用本机已有镜像
-```
-
-仍没有才：
-
-```text
-Dockerfile 本地 Build
-```
-
-### pull
-
-```dotenv
-DSH_IMAGE_MODE=pull
-```
-
-只允许 Pull。
-
-### build
-
-```dotenv
-DSH_IMAGE_MODE=build
-```
-
-强制本地 Build。
-
----
-
-## 9. 本地 Build 缓存
-
-Dockerfile 使用安全的 BuildKit cache：
-
-```text
-apt
-npm
-Go modules
-Go build cache
-```
-
-Rustup 的：
-
-```text
-.rustup/tmp
-.rustup/toolchains
-```
-
-不会做 cache mount，避免：
-
-```text
-Invalid cross-device link (os error 18)
-```
-
----
-
-## 10. 登录认证
-
-创建或修改用户：
+## 状态与诊断
 
 ```bash
-./scripts/create-user.sh
+./scripts/check.sh
+./scripts/doctor.sh
 ```
 
-如果 executable bit 意外丢失：
+会检查 Workspace、Developer Home、SSH/Git 持久化以及权限。
+
+## 备份
 
 ```bash
-bash scripts/create-user.sh
+./scripts/backup.sh
 ```
 
-查看：
-
-```bash
-./scripts/list-users.sh
-```
-
-删除：
-
-```bash
-./scripts/remove-user.sh
-```
-
-认证数据：
+备份：
 
 ```text
-.runtime/auth/users.caddy
+.env
+.runtime/
 ```
 
-密码仅保存 bcrypt Hash。
+备份文件权限为 `0600`。
 
----
+**其中包含 SSH 私钥、Git/Cloud/CLI 凭据和 DSH 凭据，必须作为敏感文件保存。**
 
-## 11. 更新
+## 更新
 
 ```bash
 ./scripts/update.sh
 ```
 
-即使刚 Pull 下来的新脚本 executable bit 异常，`update.sh` 在 Pull 后会先修复工作区权限，然后：
+不会删除：
 
 ```text
-exec bash scripts/rebuild.sh
+.env
+.runtime/workspace
+.runtime/dsh-home
+.runtime/home
+.runtime/auth
 ```
 
-因此不会因为新的 `rebuild.sh` 是 0644 而中断更新。
-
----
-
-## 12. 状态
+## 常用命令
 
 ```bash
-./scripts/check.sh
-```
-
-重点输出：
-
-```text
-Core listen
-Proxy target
-Auth users
-Runtime
-Workspace
-Workspace UI
-HTTP compat
-```
-
-正常：
-
-```text
-Workspace    : <repo>/.runtime/workspace <-> /workspace
-Workspace UI : /home/node/workspace -> /workspace
-```
-
----
-
-## 13. 诊断
-
-```bash
-./scripts/doctor.sh
-```
-
-检查：
-
-```text
-Docker
-Docker Compose
-Core 配置
-端口
-认证用户
-Shell execute bits
-Workspace UI symlink
-```
-
----
-
-## 14. 发布前自检
-
-```bash
-bash scripts/prepare-release.sh
-```
-
-或者只检查：
-
-```bash
-bash scripts/self-test.sh
-```
-
-仓库模式检查：
-
-```bash
-git ls-files -s start-dsh-web.sh scripts/*.sh
-```
-
-这些文件都应该是：
-
-```text
-100755
-```
-
----
-
-## 15. 常用命令
-
-```bash
-# 部署
 ./scripts/deploy.sh
-
-# executable bit 丢失时也能启动并自修复
-bash scripts/deploy.sh
-
-# 状态
+./scripts/update.sh
+./scripts/rebuild.sh
 ./scripts/check.sh
-
-# 诊断
 ./scripts/doctor.sh
 
-# 更新
-./scripts/update.sh
-
-# 重建
-./scripts/rebuild.sh
-
-# 用户
 ./scripts/create-user.sh
 ./scripts/list-users.sh
 ./scripts/remove-user.sh
 
-# 修复工作区权限
-bash scripts/repair-permissions.sh
+bash scripts/fix-home-permissions.sh
+bash scripts/migrate-home-state.sh
+bash scripts/backup.sh
 
-# 维护者：同时写入 Git index executable bit
-bash scripts/repair-permissions.sh --git-index
-
-# 发布准备
-bash scripts/prepare-release.sh
-
-# 进入 DSH
 docker compose exec dsh bash
 ```
-
----
-
-## 16. 数据目录
-
-```text
-.runtime/
-├── workspace/
-│   └── projects/
-├── dsh-home/
-└── auth/
-    └── users.caddy
-```
-
-普通：
-
-```text
-deploy
-update
-rebuild
-stop
-```
-
-都不会删除 `.runtime`。

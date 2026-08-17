@@ -26,6 +26,9 @@ preflight_core_port "${ROOT_DIR}"
 
 bash "${ROOT_DIR}/scripts/init-runtime.sh"
 
+# Preserve pre-v5 container identity/config before it can be replaced.
+bash "${ROOT_DIR}/scripts/migrate-home-state.sh"
+
 echo
 echo "Core listen : ${BIND_ADDRESS:-127.0.0.1}:${DSH_PORT:-3080}"
 echo "Image mode  : ${DSH_IMAGE_MODE:-auto}"

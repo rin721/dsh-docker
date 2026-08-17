@@ -16,6 +16,9 @@ validate_core_config
 preflight_core_port "${ROOT_DIR}"
 bash "${ROOT_DIR}/scripts/init-runtime.sh"
 
+# Preserve pre-v5 container identity/config before it can be replaced.
+bash "${ROOT_DIR}/scripts/migrate-home-state.sh"
+
 USERS_FILE="$(users_file "${ROOT_DIR}")"
 has_auth_user "${USERS_FILE}" || {
     echo "缺少登录用户，请先执行 ./scripts/create-user.sh。" >&2

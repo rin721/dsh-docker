@@ -27,3 +27,5 @@ Core Gateway 使用 Caddy HTTP Basic Authentication。
 ```
 
 明文密码不落盘。
+
+SSH/Git 等开发者凭据位于 `.runtime/home/`。

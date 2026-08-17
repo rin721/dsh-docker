@@ -11,6 +11,11 @@ services:
       DSH_PERMISSION_MODE: "${DSH_PERMISSION_MODE:-workspace-write}"
       DSH_TELEMETRY_DISABLED: "${DSH_TELEMETRY_DISABLED:-1}"
       DSH_HTTP_COMPAT_SHIM: "${DSH_HTTP_COMPAT_SHIM:-true}"
+      DSH_PERSIST_HOME: /home/node/.persist
+      XDG_CONFIG_HOME: /home/node/.config
+      XDG_DATA_HOME: /home/node/.local/share
+      XDG_STATE_HOME: /home/node/.local/state
+      HISTFILE: /home/node/.bash_history
       NODE_USE_ENV_PROXY: "${NODE_USE_ENV_PROXY:-1}"
       HTTP_PROXY: "${HTTP_PROXY:-}"
       HTTPS_PROXY: "${HTTPS_PROXY:-}"
@@ -22,6 +27,10 @@ services:
       - type: bind
         source: "${RUNTIME_DIR:-./.runtime}/dsh-home"
         target: /home/node/.dsh
+      # Long-lived developer identity/config/credentials.
+      - type: bind
+        source: "${RUNTIME_DIR:-./.runtime}/home"
+        target: /home/node/.persist
       # Runtime bridge files are mounted from the repository so proxy/security
       # fixes do not require rebuilding the heavy development image.
       - type: bind

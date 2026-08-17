@@ -63,4 +63,33 @@ if [[ -n "$(docker compose ps -q dsh 2>/dev/null || true)" ]]; then
     fi
 fi
 
+
+HOME_STATE="$(runtime_dir_abs "${ROOT_DIR}")/home"
+
+if [[ -d "${HOME_STATE}/ssh" && -d "${HOME_STATE}/git" && -d "${HOME_STATE}/config" ]]; then
+    ok "developer home persistence directories"
+else
+    bad "developer home persistence directories missing"
+fi
+
+if [[ -n "$(docker compose ps -q dsh 2>/dev/null || true)" ]]; then
+    if docker compose exec -T dsh sh -lc '
+        test -L "$HOME/.ssh" &&
+        test "$(readlink "$HOME/.ssh")" = "$HOME/.persist/ssh" &&
+        test -L "$HOME/.gitconfig" &&
+        test "$(readlink "$HOME/.gitconfig")" = "$HOME/.persist/git/config" &&
+        test -L "$HOME/.config" &&
+        test "$(readlink "$HOME/.config")" = "$HOME/.persist/config"
+    ' >/dev/null 2>&1; then
+        ok "developer home persistence links"
+    else
+        bad "developer home persistence links"
+    fi
+fi
+
+ssh_mode="$(stat -c '%a' "${HOME_STATE}/ssh" 2>/dev/null || true)"
+[[ "${ssh_mode}" == "700" ]] \
+    && ok "SSH directory mode 0700" \
+    || bad "SSH directory mode is ${ssh_mode:-missing}, expected 700"
+
 (( errors == 0 )) || exit 1

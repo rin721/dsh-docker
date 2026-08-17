@@ -10,31 +10,56 @@ cd "${ROOT_DIR}"
 load_env "${ROOT_DIR}"
 
 RUNTIME_ABS="$(runtime_dir_abs "${ROOT_DIR}")"
-UID_VALUE="${RUNTIME_UID:-1000}"
-GID_VALUE="${RUNTIME_GID:-1000}"
 
 mkdir -p \
-    "${RUNTIME_ABS}/workspace" \
     "${RUNTIME_ABS}/workspace/projects" \
     "${RUNTIME_ABS}/dsh-home" \
     "${RUNTIME_ABS}/auth" \
-    "${RUNTIME_ABS}/edge/caddy/data" \
-    "${RUNTIME_ABS}/edge/caddy/config"
+    "${RUNTIME_ABS}/home/ssh" \
+    "${RUNTIME_ABS}/home/gnupg" \
+    "${RUNTIME_ABS}/home/aws" \
+    "${RUNTIME_ABS}/home/kube" \
+    "${RUNTIME_ABS}/home/docker" \
+    "${RUNTIME_ABS}/home/config" \
+    "${RUNTIME_ABS}/home/local/share" \
+    "${RUNTIME_ABS}/home/local/state" \
+    "${RUNTIME_ABS}/home/git" \
+    "${RUNTIME_ABS}/home/shell" \
+    "${RUNTIME_ABS}/home/npm" \
+    "${RUNTIME_ABS}/home/cargo"
 
-touch "${RUNTIME_ABS}/auth/users.caddy"
+touch \
+    "${RUNTIME_ABS}/auth/users.caddy" \
+    "${RUNTIME_ABS}/home/git/config" \
+    "${RUNTIME_ABS}/home/git/credentials" \
+    "${RUNTIME_ABS}/home/shell/bash_history" \
+    "${RUNTIME_ABS}/home/shell/python_history" \
+    "${RUNTIME_ABS}/home/npm/npmrc" \
+    "${RUNTIME_ABS}/home/netrc" \
+    "${RUNTIME_ABS}/home/pypirc" \
+    "${RUNTIME_ABS}/home/cargo/config.toml" \
+    "${RUNTIME_ABS}/home/cargo/credentials.toml"
 
-# DSH 容器以 node(1000:1000) 运行。root 部署时主动对齐工作区权限。
-if [[ "${EUID}" -eq 0 ]]; then
-    chown -R "${UID_VALUE}:${GID_VALUE}" \
-        "${RUNTIME_ABS}/workspace" \
-    "${RUNTIME_ABS}/workspace/projects" \
-        "${RUNTIME_ABS}/dsh-home"
-fi
+bash "${ROOT_DIR}/scripts/fix-home-permissions.sh"
 
 chmod 0750 "${RUNTIME_ABS}"
 chmod 0750 "${RUNTIME_ABS}/workspace" "${RUNTIME_ABS}/auth"
 chmod 0700 "${RUNTIME_ABS}/dsh-home"
-# Caddy 容器必须能读取该 bind-mounted 文件；目录本身仍限制为 0750。
+
+# Final explicit security fence for persistent developer identity.
+chmod 0700 "${RUNTIME_ABS}/home" "${RUNTIME_ABS}/home/ssh" "${RUNTIME_ABS}/home/gnupg"
+chmod 0600 \
+    "${RUNTIME_ABS}/home/git/config" \
+    "${RUNTIME_ABS}/home/git/credentials" \
+    "${RUNTIME_ABS}/home/shell/bash_history" \
+    "${RUNTIME_ABS}/home/shell/python_history" \
+    "${RUNTIME_ABS}/home/npm/npmrc" \
+    "${RUNTIME_ABS}/home/netrc" \
+    "${RUNTIME_ABS}/home/pypirc" \
+    "${RUNTIME_ABS}/home/cargo/config.toml" \
+    "${RUNTIME_ABS}/home/cargo/credentials.toml"
+
+# Caddy needs this one file readable through its bind mount.
 chmod 0644 "${RUNTIME_ABS}/auth/users.caddy"
 
 echo "Repository runtime: ${RUNTIME_ABS}"
