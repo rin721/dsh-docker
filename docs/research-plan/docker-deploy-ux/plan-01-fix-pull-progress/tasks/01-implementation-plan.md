@@ -36,9 +36,9 @@
 - [x] `README.md` 新增「镜像拉取与网络排查」小节。
 - [x] `README.md`「状态与诊断」加入 `check-image.sh`。
 
-### T5. 阅读并提交（按 git-conventional-commit 规范）
-- [ ] 复跑 `bash scripts/self-test.sh`、`bash scripts/doctor.sh`（如有 docker）。
-- [ ] 仅暂存预期文件，`git add` + Conventional Commits 提交。
+### T5. 阅读并提交（按 git-conventional-commit 规范）✅
+- [x] 复跑 `bash scripts/self-test.sh`（`bash -n` 全通过；运行时项因无 docker/Windows 环境跳过）。
+- [x] 仅暂存预期文件，`git add` + Conventional Commits 提交（`188bb85`）。
 
 ## 2. 依赖与顺序
 
