@@ -14,30 +14,27 @@
 - [x] 核对 `scripts/lib.sh`（`resolve_dsh_delivery`）确为进度被吞的元凶。
 - [x] 核对 `deploy.sh`、`compose.yaml`、`Dockerfile`、`publish-image.yml`。
 
-### T1. 实施核心修复（对应 D1）
-- [ ] Read `scripts/lib.sh`，定位 `resolve_dsh_delivery` 的 `auto` 分支（第 234–247 行）。
-- [ ] 将 `if output="$(docker pull ...)"` + `printf` 替换为 `if docker pull ...`，
-      保留 `local` / `build` fallback 分支。
-- [ ] `bash -n scripts/lib.sh` 通过；`shellcheck scripts/lib.sh` 通过。
-- [ ] 确认 `export DSH_DELIVERY` 仍保留、`prepare_dsh_image` 各分支行为不变。
+### T1. 实施核心修复（对应 D1）✅
+- [x] Read `scripts/lib.sh`，定位 `resolve_dsh_delivery` 的 `auto` 分支。
+- [x] 将 `if output="$(docker pull ...)"` + `printf` 替换为 `if docker pull ...`，保留 `local` / `build` fallback 分支。
+- [x] `bash -n scripts/lib.sh` 通过；`shellcheck scripts/lib.sh` 通过。
+- [x] 确认 `export DSH_DELIVERY` 仍保留、`prepare_dsh_image` 各分支行为不变。
 
-### T2. 防回归校验（对应 D2）
-- [ ] Read `scripts/self-test.sh`。
-- [ ] 新增 grep 校验：`lib.sh` 不得再出现 `output="$(docker pull` /
-      `output="$(docker compose pull` 模式。
-- [ ] `bash scripts/self-test.sh` 全绿。
+### T2. 防回归校验（对应 D2）✅
+- [x] Read `scripts/self-test.sh`。
+- [x] 新增 grep 校验：`lib.sh` 不得再出现 `output="$(docker pull` / `output="$(docker compose pull` 模式。
+- [x] `bash scripts/self-test.sh` 全绿。
 
-### T3. 诊断能力（对应 D3，推荐）
-- [ ] Read `scripts/check-image.sh`，决定是增强还是新建 `scripts/diagnose-pull.sh`。
-- [ ] 实现 `[1/4]` 冒烟 pull、`[2/4]` DNS、`[3/4]` `curl -I ghcr.io/v2/`、
-      `[4/4]` `docker manifest inspect` 分诊步骤（全部带超时）。
-- [ ] 保证 `401` 判为「正常」，脚本自身不挂死。
-- [ ] `bash -n` + `shellcheck`.
+### T3. 诊断能力（对应 D3，推荐）✅
+- [x] Read `scripts/check-image.sh`，决定增强（直接在 `check-image.sh` 内增强，不新建）。
+- [x] 实现 manifest / GHCR Registry（`curl -I ghcr.io/v2/`）/ Layer CDN DNS 分诊步骤（全部带超时）。
+- [x] 保证 `401` 判为「正常」，脚本自身不挂死。
+- [x] `bash -n` + `shellcheck`.
 
-### T4. 文档更新（对应 D4）
-- [ ] `README.md` 部署章节说明实时进度。
-- [ ] `README.md` 新增「拉取/网络故障排查」小节。
-- [ ] 若新增脚本，更新「常用命令」。
+### T4. 文档更新（对应 D4）✅
+- [x] `README.md` 部署章节说明实时进度。
+- [x] `README.md` 新增「镜像拉取与网络排查」小节。
+- [x] `README.md`「状态与诊断」加入 `check-image.sh`。
 
 ### T5. 阅读并提交（按 git-conventional-commit 规范）
 - [ ] 复跑 `bash scripts/self-test.sh`、`bash scripts/doctor.sh`（如有 docker）。

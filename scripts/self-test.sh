@@ -56,6 +56,11 @@ grep -Fq 'source: "${RUNTIME_DIR:-./.runtime}/home"' "${ROOT_DIR}/compose.yaml" 
     && ok "compose: developer home persistence mount" \
     || bad "compose: developer home persistence mount missing"
 
+# dsh pull progress must not be swallowed into a variable (causes a "fake hang").
+grep -Eq 'output="\$\(docker (pull|compose pull)' "${ROOT_DIR}/scripts/lib.sh" \
+    && bad "lib.sh: docker pull output captured (live progress swallowed)" \
+    || ok "lib.sh: docker pull output not captured"
+
 tmp_state="$(mktemp -d)"
 trap 'rm -rf "${tmp_state}"' EXIT
 mkdir -p "${tmp_state}/home/.local" "${tmp_state}/home/.cargo" "${tmp_state}/persist" "${tmp_state}/workspace"

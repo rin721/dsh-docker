@@ -221,7 +221,6 @@ validate_gateway_config_or_die() {
 resolve_dsh_delivery() {
     local mode="${DSH_IMAGE_MODE:-auto}"
     local image="${DSH_IMAGE:-ghcr.io/rin721/dsh-docker:latest}"
-    local output
 
     validate_image_mode "${mode}"
 
@@ -233,8 +232,8 @@ resolve_dsh_delivery() {
             ;;
         auto)
             echo "尝试拉取预构建 DSH 镜像：${image}"
-            if output="$(docker pull "${image}" 2>&1)"; then
-                printf '%s\n' "${output}"
+
+            if docker pull "${image}"; then
                 DSH_DELIVERY=prebuilt
             elif docker image inspect "${image}" >/dev/null 2>&1; then
                 echo "预构建镜像当前无法拉取；复用本机已有 DSH 镜像。" >&2

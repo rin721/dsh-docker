@@ -185,14 +185,40 @@ DSH_IMAGE=ghcr.io/rin721/dsh-docker:latest
 
 优先 Pull；不可用时复用本地镜像；仍没有才本地 Build。
 
+`auto` 模式下 `docker pull` 的下载进度会**实时显示**（而不是被缓存、看起来像卡死）。
+若拉取长时间无进展，见下方「镜像拉取与网络排查」。
+
 ## 状态与诊断
 
 ```bash
 ./scripts/check.sh
 ./scripts/doctor.sh
+./scripts/check-image.sh
 ```
 
-会检查 Workspace、Developer Home、SSH/Git 持久化以及权限。
+会检查 Workspace、Developer Home、SSH/Git 持久化以及权限；`check-image.sh` 额外检查
+预构建镜像与 GHCR 网络连通性。
+
+### 镜像拉取与网络排查
+
+若 `deploy.sh` 在「尝试拉取预构建 DSH 镜像」后长时间无输出，按顺序排查：
+
+1. 确认是否只是进度缓慢：`docker pull ghcr.io/rin721/dsh-docker:latest` 看是否出现
+   `Pulling fs layer` / `Downloading ...`。能显示进度=正常，只是镜像较大或带宽慢。
+2. 一键诊断：`./scripts/check-image.sh`（检测 manifest、GHCR Registry、Layer CDN DNS）。
+3. Registry 与 Layer CDN 分开测试：
+
+   ```bash
+   time docker manifest inspect ghcr.io/rin721/dsh-docker:latest >/dev/null
+   getent hosts ghcr.io
+   getent hosts pkg-containers.githubusercontent.com
+   curl -I --connect-timeout 10 https://ghcr.io/v2/
+   ```
+
+   - `curl -I https://ghcr.io/v2/` 返回 `HTTP/2 401` 是**正常**（说明 DNS/TCP/TLS 通）。
+   - 若 manifest 秒回、而 `docker pull` 卡在 `Downloading/Waiting`，问题多在 Layer CDN
+     `pkg-containers.githubusercontent.com` 或服务器出口网络。
+
 
 ## 备份
 
