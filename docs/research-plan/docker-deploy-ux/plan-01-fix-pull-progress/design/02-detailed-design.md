@@ -1,4 +1,4 @@
-# 设计 / 02-详细设计.md
+# Design / 02-detailed-design.md
 
 ## 1. 改动点总览
 

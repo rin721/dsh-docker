@@ -1,4 +1,4 @@
-# 设计 / 01-总体设计.md
+# Design / 01-overall-design.md
 
 ## 1. 设计目标回顾
 

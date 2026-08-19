@@ -13,11 +13,11 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [需求/01-需求分析.md](需求/01-需求分析.md) | 问题背景、现状分析、目标、非目标、验收标准 |
-| [设计/01-总体设计.md](设计/01-总体设计.md) | 解决思路、方案对比、总体架构调整 |
-| [设计/02-详细设计.md](设计/02-详细设计.md) | 具体改动点（脚本、诊断、文档）与伪代码/示例 |
-| [任务/01-实施计划.md](任务/01-实施计划.md) | 分步实施清单、责任人、顺序、依赖 |
-| [任务/02-测试与验收.md](任务/02-测试与验收.md) | 自测、手动验收、回归与发布检查 |
+| [requirements/01-requirements-analysis.md](requirements/01-requirements-analysis.md) | 问题背景、现状分析、目标、非目标、验收标准 |
+| [design/01-overall-design.md](design/01-overall-design.md) | 解决思路、方案对比、总体架构调整 |
+| [design/02-detailed-design.md](design/02-detailed-design.md) | 具体改动点（脚本、诊断、文档）与伪代码/示例 |
+| [tasks/01-implementation-plan.md](tasks/01-implementation-plan.md) | 分步实施清单、责任人、顺序、依赖 |
+| [tasks/02-testing-and-acceptance.md](tasks/02-testing-and-acceptance.md) | 自测、手动验收、回归与发布检查 |
 
 ## 三、范围与交付物
 
